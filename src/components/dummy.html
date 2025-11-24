@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sujana Gold Company Invoice</title>
+
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      padding: 0;
+      margin: 0;
+      background: white;
+    }
+
+    .invoice-container {
+      width: 800px;
+      margin: auto;
+      border: 1px solid black;
+      padding: 10px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 14px;
+    }
+
+    th,
+    td {
+      border: 1px solid black;
+      padding: 6px;
+      text-align: left;
+    }
+
+    .center {
+      text-align: center;
+    }
+
+    .bold {
+      font-weight: bold;
+    }
+
+    .header-table td {
+      border: none;
+    }
+
+    .no-border td {
+      border: none !important;
+    }
+
+    .logo img {
+      width: 120px;
+    }
+
+    @media print {
+      .no-print {
+        display: none;
+      }
+    }
+  </style>
+
+</head>
+
+<body>
+
+  <div class="no-print" style="text-align:center; margin:10px;">
+    <button onclick="window.print()"
+      style="padding:10px 20px; background:#d4a017; border:none; color:white; font-size:16px; cursor:pointer;">
+      Print Invoice
+    </button>
+  </div>
+
+  <div class="invoice-container">
+
+    <!-- HEADER -->
+    <table class="header-table">
+      <tr>
+        <td class="center" colspan="3">
+          <div class="logo">
+            <img src="http://localhost:5173/images/logo.png" alt="Sujana Gold Company" />
+          </div>
+
+          <div class="bold" style="font-size:28px; margin-top:-10px;">
+            SUJANA GOLD COMPANY
+          </div>
+
+          Opp Apsara Theatre, Apsara Cir Road <br>
+          Kadapa, Andhra Pradesh - 516001 <br>
+          <b>Phone:</b> 6303060488
+        </td>
+      </tr>
+    </table>
+
+    <!-- TOP COMPANY INFO ROW -->
+    <table>
+      <tr>
+        <td><b>BRANCH :</b> Kadapa - Central</td>
+        <td><b>CONTACT :</b> 6303060488</td>
+        <td><b>GST NO :</b> ———————</td>
+      </tr>
+    </table>
+
+    <table>
+      <tr>
+        <!-- Left side fields -->
+        <td><b>CUSTOMER ID</b><br> SUJANA-0001</td>
+        <td><b>DATE / TIME</b><br> 21-11-2025 10:10:00</td>
+
+        <!-- RIGHT SIDE PHOTO + ID PROOF + ADDRESS PROOF (Exact Attica Style) -->
+        <td rowspan="4" style="width:180px; padding:0; margin:0; border:1px solid black; vertical-align:top;">
+
+          <!-- PHOTO BOX -->
+          <div style="width:100%; height:130px; border-bottom:1px solid black;"></div>
+
+          <!-- ID PROOF ROW -->
+          <div style="border-bottom:1px solid black; padding:6px; font-size:13px;">
+            <b>ID PROOF</b><br>
+            <div
+              style="margin-top:4px; width:100%; border:1px solid black; height:28px; text-align:center; padding-top:4px;">
+              ____________
+            </div>
+          </div>
+
+          <!-- ADDRESS PROOF ROW -->
+          <div style="padding:6px; font-size:13px;">
+            <b>ADDRESS PROOF</b><br>
+            <div
+              style="margin-top:4px; width:100%; border:1px solid black; height:28px; text-align:center; padding-top:4px;">
+              ____________
+            </div>
+          </div>
+
+        </td>
+
+      </tr>
+
+      <tr>
+        <td><b>CUSTOMER NAME</b><br> ____________________</td>
+        <td><b>BILL ID</b><br> 10001</td>
+      </tr>
+
+      <tr>
+        <td><b>CONTACT</b><br> ____________________</td>
+        <td><b>GOLD PRICE - (24CT)</b><br> _________</td>
+      </tr>
+
+      <tr>
+        <td colspan="2">
+          <b>ADDRESS :</b> ____________________________________ <br>
+          ________________________________________
+        </td>
+      </tr>
+    </table>
+
+
+
+    <!-- ITEMS TABLE -->
+    <table>
+      <tr class="center bold">
+        <th>ORNAMENT TYPE</th>
+        <th>CODE</th>
+        <th>GROSS WEIGHT</th>
+        <th>STONE / WAX</th>
+        <th>NET WEIGHT</th>
+        <th>PURITY</th>
+        <th>GROSS AMOUNT</th>
+      </tr>
+
+      <tr class="center">
+        <td>Chain</td>
+        <td>1003</td>
+        <td>16.32</td>
+        <td>0</td>
+        <td>16.320</td>
+        <td>86%</td>
+        <td>1,51,580</td>
+      </tr>
+
+      <tr class="center bold">
+        <td colspan="2">GRAND TOTAL</td>
+        <td>16.32</td>
+        <td>0</td>
+        <td>16.320</td>
+        <td>86%</td>
+        <td>1,51,580</td>
+      </tr>
+    </table>
+
+    <!-- TERMS + AMOUNTS SIDE BY SIDE -->
+    <table>
+      <tr>
+
+        <!-- LEFT: TERMS -->
+        <td style="width:65%; vertical-align:top; padding:10px;">
+
+          <div class="bold center">TERMS & CONDITIONS</div>
+
+          <div style="font-size:13px; line-height:1.4;">
+            1. Ornaments once purchased shall not be returned under any circumstances. <br>
+            2. If any losses are arising out of this purchase, then you are liable to settle full amount. <br>
+            3. Selling stolen gold, silver or fake gold is a criminal offence; if found will be reported. <br>
+            4. You declare full ownership of the ornaments sold & indemnify Sujana Gold Company. <br>
+            5. Check cash before leaving the counter; no claims accepted afterward.
+          </div>
+
+          <br>
+
+          <div class="bold center">షరతులు మరియు నిబంధనలు</div>
+
+          <div style="font-size:13px; line-height:1.6;">
+            1. ఒకసారి కొనుగోలు చేసిన ఆభరణాలు తిరిగి స్వీకరించబడవు. <br>
+            2. ఈ కొనుగోలుతో సంబంధిత నష్టాలకు మీరు బాధ్యత వహించాలి. <br>
+            3. నకిలీ లేదా దొంగతనం చేసిన బంగారం అమ్మడం నేరం. <br>
+            4. అమ్మిన ఆభరణాల యాజమాన్యం మీదే అని మీరు ప్రకటిస్తున్నారు. <br>
+            5. కౌంటర్ వదిలే ముందు నగదు సరిచూసుకోండి.
+          </div>
+
+        </td>
+
+        <!-- RIGHT: AMOUNT SUMMARY -->
+        <td style="width:35%; padding:0; vertical-align:top;">
+
+          <!-- AMOUNT SUMMARY TABLE -->
+          <table style="width:100%; font-size:14px; border-collapse:collapse;">
+            <tr>
+              <td class="bold">GROSS AMOUNT</td>
+              <td>1,51,580</td>
+            </tr>
+            <tr>
+              <td class="bold">MARGIN</td>
+              <td>1,580</td>
+            </tr>
+            <tr>
+              <td class="bold">NET AMOUNT</td>
+              <td>1,50,000</td>
+            </tr>
+            <tr>
+              <td class="bold">RELEASE</td>
+              <td>1,50,000</td>
+            </tr>
+            <tr>
+              <td class="bold">AMOUNT PAID</td>
+              <td>1,50,000</td>
+            </tr>
+          </table>
+
+          <!-- SIGNATURE SECTION (EXACT ATTICA STYLE) -->
+          <table style="width:100%; border-collapse: collapse; margin-top:-1px;">
+            <tr>
+              <!-- THUMB IMPRESSION BOX -->
+              <td style="
+        width:50%;
+        height:90px;
+        border:1px solid black;
+        text-align:center;
+        font-weight:bold;
+        vertical-align:bottom;
+        padding-bottom:10px;
+      ">
+                THUMB IMPRESSION
+              </td>
+
+              <!-- CUSTOMER SIGNATURE BOX -->
+              <td style="
+        width:50%;
+        height:90px;
+        border:1px solid black;
+        text-align:center;
+        font-weight:bold;
+        vertical-align:bottom;
+        padding-bottom:10px;
+      ">
+                CUSTOMER SIGNATURE
+              </td>
+            </tr>
+          </table>
+
+        </td>
+
+
+        <!-- AMOUNT IN WORDS -->
+        <table>
+          <tr>
+            <td><b>AMOUNT IN WORDS :</b> ONE LAKH FIFTY THOUSAND ONLY</td>
+          </tr>
+        </table>
+
+  </div>
+
+</body>
+
+</html>
