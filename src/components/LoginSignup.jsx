@@ -47,9 +47,9 @@ const LoginSignup = () => {
         <div className="absolute inset-0 bg-black bg-opacity-30"></div>
         <div className="relative z-10 text-center text-white">
           <img
-            src="/images/logo.png"
+            src="/images/Sujana-Gold-Logo.jpeg"
             alt="Sujana Gold Company"
-            className="w-32 h-32 mx-auto mb-8"
+            className="w-32 h-32 mx-auto mb-8 object-contain"
           />
           <h1 className="text-4xl font-bold mb-4">Welcome to Sujana Gold</h1>
           <p className="text-xl">Your trusted partner in gold trading</p>

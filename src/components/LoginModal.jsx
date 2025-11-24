@@ -34,9 +34,9 @@ const LoginModal = ({ isOpen, onClose, onLogin }) => {
             <div className="flex items-center space-x-4">
               {/* Logo */}
               <img
-                src="/images/logo.png"
+                src="/images/Sujana-Gold-Logo.jpeg"
                 alt="Sujana Gold Logo"
-                className="h-12 w-12 rounded-lg bg-white bg-opacity-20 p-1"
+                className="h-12 w-12 object-contain rounded-lg bg-white bg-opacity-20 p-1"
               />
               <div>
                 <h2 className="text-2xl font-bold text-white">Admin Login</h2>

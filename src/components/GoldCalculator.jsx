@@ -11,7 +11,7 @@ import jsPDF from "jspdf";
    "phone": "+91 98765 43210",
    "email": "support@sujanagold.in",
    "gstNumber": "29ABCDE1234F1Z5",
-   "logoFile": "logo.png"   // must exist in /public/images/
+   "logoFile": "Sujana-Gold-Logo.jpeg"   // must exist in /public/images/
  }
 */
 

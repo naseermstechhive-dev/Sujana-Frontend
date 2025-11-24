@@ -41,7 +41,7 @@ const Navbar = () => {
               <img
                 src="/images/Sujana-Gold-Logo.jpeg"
                 alt="Sujana Gold Company"
-                className="h-18 w-auto mr-3"
+                className="h-16 w-auto mr-3"
               />
               <span className="text-xl font-bold text-yellow-400">
                 Sujana Gold

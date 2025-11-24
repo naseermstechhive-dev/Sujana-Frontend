@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { authAPI, cashAPI, billingAPI } from '../services/api';
+import { authAPI, cashAPI, billingAPI, renewalAPI, takeoverAPI } from '../services/api';
 import { useNavigate } from 'react-router-dom';
 import GoldPriceSetter from '../components/GoldPriceSetter';
 import { numberToWords } from '../utils/numberUtils';
@@ -21,7 +21,7 @@ const Dashboard = () => {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const [open, setOpen] = useState(true);
-  const [activeItem, setActiveItem] = useState('Gold Details');
+  const [activeItem, setActiveItem] = useState('');
   const [employees, setEmployees] = useState([]);
   const [loading, setLoading] = useState(false);
   const [newEmployee, setNewEmployee] = useState({
@@ -33,9 +33,15 @@ const Dashboard = () => {
   const [cashAmount, setCashAmount] = useState('');
   const [billings, setBillings] = useState([]);
   const [filteredBillings, setFilteredBillings] = useState([]);
+  const [renewals, setRenewals] = useState([]);
+  const [takeovers, setTakeovers] = useState([]);
   const [company, setCompany] = useState(null);
   const [searchName, setSearchName] = useState('');
-  const [searchInvoice, setSearchInvoice] = useState('');
+  const [searchDate, setSearchDate] = useState('');
+  const [goldVaultTab, setGoldVaultTab] = useState('physical');
+  const [marginData, setMarginData] = useState(null);
+  const [dailyTransactions, setDailyTransactions] = useState(null);
+  const [hasInitialCash, setHasInitialCash] = useState(false);
 
   const handleSearch = () => {
     let filtered = billings;
@@ -46,10 +52,16 @@ const Dashboard = () => {
       );
     }
 
-    if (searchInvoice.trim()) {
-      filtered = filtered.filter(billing =>
-        billing.invoiceNo.toLowerCase().includes(searchInvoice.toLowerCase())
-      );
+    if (searchDate.trim()) {
+      filtered = filtered.filter(billing => {
+        const billingDate = new Date(billing.createdAt || billing.date);
+        const searchDateObj = new Date(searchDate);
+
+        // Compare year, month, and day
+        return billingDate.getFullYear() === searchDateObj.getFullYear() &&
+               billingDate.getMonth() === searchDateObj.getMonth() &&
+               billingDate.getDate() === searchDateObj.getDate();
+      });
     }
 
     setFilteredBillings(filtered);
@@ -57,7 +69,7 @@ const Dashboard = () => {
 
   const clearSearch = () => {
     setSearchName('');
-    setSearchInvoice('');
+    setSearchDate('');
     setFilteredBillings(billings);
   };
 
@@ -75,6 +87,66 @@ const Dashboard = () => {
     } catch (error) {
       console.error('Error deleting billing:', error);
       alert('Failed to delete billing: ' + error.message);
+    }
+  };
+
+  const resetInitialCash = async () => {
+    if (!window.confirm('Are you sure you want to reset initial cash? This will allow employees to add new initial cash.')) {
+      return;
+    }
+
+    try {
+      const response = await cashAPI.resetInitialCash();
+      if (response.success) {
+        alert('Initial cash reset successfully');
+        setHasInitialCash(false);
+        fetchCashVault();
+      }
+    } catch (error) {
+      alert('Failed to reset initial cash: ' + error.message);
+    }
+  };
+
+  const resetGoldTransactions = async () => {
+    if (!window.confirm('Are you sure you want to reset ALL gold transactions? This action cannot be undone.')) {
+      return;
+    }
+
+    try {
+      const response = await billingAPI.resetGoldTransactions();
+      if (response.success) {
+        alert('All gold transactions reset successfully');
+        fetchBillings();
+        fetchRenewals();
+        fetchTakeovers();
+        fetchCashVault();
+      }
+    } catch (error) {
+      alert('Failed to reset gold transactions: ' + error.message);
+    }
+  };
+
+  const fetchMargin = async () => {
+    try {
+      const response = await cashAPI.getMargin();
+      if (response.success) {
+        setMarginData(response.data);
+      }
+    } catch (error) {
+      console.error('Error fetching margin:', error);
+      alert('Failed to fetch margin data');
+    }
+  };
+
+  const fetchDailyTransactions = async () => {
+    try {
+      const response = await billingAPI.getDailyTransactions();
+      if (response.success) {
+        setDailyTransactions(response.data);
+      }
+    } catch (error) {
+      console.error('Error fetching daily transactions:', error);
+      alert('Failed to fetch daily transactions');
     }
   };
 
@@ -306,127 +378,333 @@ const Dashboard = () => {
       content: (
         <div>
           <div className="flex justify-between items-center mb-4">
-            <h2 className="text-2xl font-bold">Gold Vault (Today)</h2>
+            <h2 className="text-2xl font-bold">Gold Vault</h2>
             <div className="text-gray-600 font-medium">
               {new Date().toLocaleDateString('en-IN', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
             </div>
           </div>
           <p className="text-gray-600 mb-6">
-            View gold inventory details for today. Data resets daily.
+            Manage all gold transactions: Physical sales, Bank renewals, and Takeovers.
           </p>
 
-          {/* Filter Billings for Today */}
-          {(() => {
-            const today = new Date().toDateString();
-            const todaysBillings = billings.filter(b => 
-              new Date(b.createdAt || b.date).toDateString() === today
-            );
+          {/* Tab Navigation */}
+          <div className="flex space-x-1 mb-6 bg-gray-100 p-1 rounded-lg">
+            <button
+              onClick={() => setGoldVaultTab('physical')}
+              className={`flex-1 py-2 px-4 rounded-md text-sm font-medium transition-colors ${
+                goldVaultTab === 'physical'
+                  ? 'bg-white text-gray-900 shadow-sm'
+                  : 'text-gray-600 hover:text-gray-900'
+              }`}
+            >
+              Physical Sales
+            </button>
+            <button
+              onClick={() => setGoldVaultTab('renewal')}
+              className={`flex-1 py-2 px-4 rounded-md text-sm font-medium transition-colors ${
+                goldVaultTab === 'renewal'
+                  ? 'bg-white text-gray-900 shadow-sm'
+                  : 'text-gray-600 hover:text-gray-900'
+              }`}
+            >
+              Bank Renewals
+            </button>
+            <button
+              onClick={() => setGoldVaultTab('takeover')}
+              className={`flex-1 py-2 px-4 rounded-md text-sm font-medium transition-colors ${
+                goldVaultTab === 'takeover'
+                  ? 'bg-white text-gray-900 shadow-sm'
+                  : 'text-gray-600 hover:text-gray-900'
+              }`}
+            >
+              Takeovers
+            </button>
+          </div>
 
-            return (
-              <>
-                {/* Gold Stats Cards */}
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
-                  <div className="bg-yellow-50 p-4 rounded-lg border border-yellow-200 shadow-sm">
-                    <h3 className="font-semibold text-yellow-800">Today's Gross Weight</h3>
-                    <p className="text-2xl font-bold text-yellow-600">
-                      {todaysBillings
-                        .reduce((acc, curr) => acc + (curr.goldDetails?.weight || 0), 0)
-                        .toFixed(3)} g
-                    </p>
-                  </div>
-                  <div className="bg-orange-50 p-4 rounded-lg border border-orange-200 shadow-sm">
-                    <h3 className="font-semibold text-orange-800">Today's Stone Weight</h3>
-                    <p className="text-2xl font-bold text-orange-600">
-                      {todaysBillings
-                        .reduce((acc, curr) => acc + (curr.goldDetails?.stoneWeight || 0), 0)
-                        .toFixed(3)} g
-                    </p>
-                  </div>
-                  <div className="bg-green-50 p-4 rounded-lg border border-green-200 shadow-sm">
-                    <h3 className="font-semibold text-green-800">Today's Net Weight</h3>
-                    <p className="text-2xl font-bold text-green-600">
-                      {todaysBillings
-                        .reduce((acc, curr) => {
-                          const gross = curr.goldDetails?.weight || 0;
-                          const stone = curr.goldDetails?.stoneWeight || 0;
-                          return acc + (gross - stone);
-                        }, 0)
-                        .toFixed(3)} g
-                    </p>
-                  </div>
-                </div>
+          {/* Tab Content */}
+          {goldVaultTab === 'physical' && (
+            <div>
+              <h3 className="text-lg font-semibold mb-4">Physical Gold Sales</h3>
+              <p className="text-gray-600 mb-4">Customers coming to shop to sell their gold.</p>
 
-                {/* Gold Transactions Table */}
-                <div className="bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden">
-                  <div className="p-4 bg-gray-50 border-b border-gray-200">
-                    <h3 className="font-semibold text-lg text-gray-700">Today's Transactions</h3>
-                  </div>
-                  <div className="overflow-x-auto">
-                    <table className="w-full border-collapse">
-                      <thead>
-                        <tr className="bg-gray-100 text-gray-600 uppercase text-sm leading-normal">
-                          <th className="py-3 px-6 text-left">Time</th>
-                          <th className="py-3 px-6 text-left">Invoice No</th>
-                          <th className="py-3 px-6 text-left">Customer</th>
-                          <th className="py-3 px-6 text-left">Ornament</th>
-                          <th className="py-3 px-6 text-left">Code</th>
-                          <th className="py-3 px-6 text-left">Purity</th>
-                          <th className="py-3 px-6 text-right">Gross Wt (g)</th>
-                          <th className="py-3 px-6 text-right">Stone Wt (g)</th>
-                          <th className="py-3 px-6 text-right">Net Wt (g)</th>
-                        </tr>
-                      </thead>
-                      <tbody className="text-gray-600 text-sm font-light">
-                        {todaysBillings.map((billing) => {
-                          const gross = billing.goldDetails?.weight || 0;
-                          const stone = billing.goldDetails?.stoneWeight || 0;
-                          const net = gross - stone;
-                          return (
-                            <tr key={billing._id} className="border-b border-gray-200 hover:bg-gray-50 transition duration-150">
-                              <td className="py-3 px-6 text-left whitespace-nowrap">
-                                {new Date(billing.createdAt || billing.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                              </td>
-                              <td className="py-3 px-6 text-left font-medium text-blue-600">
-                                {billing.invoiceNo}
-                              </td>
-                              <td className="py-3 px-6 text-left">
-                                {billing.customer?.name}
-                              </td>
-                              <td className="py-3 px-6 text-left">
-                                <span className="bg-yellow-100 text-yellow-800 py-1 px-3 rounded-full text-xs">
-                                  {billing.goldDetails?.ornamentType}
-                                </span>
-                              </td>
-                              <td className="py-3 px-6 text-left font-mono">
-                                {billing.goldDetails?.ornamentCode}
-                              </td>
-                              <td className="py-3 px-6 text-left">
-                                {billing.goldDetails?.purityLabel}
-                              </td>
-                              <td className="py-3 px-6 text-right font-bold">
-                                {gross.toFixed(3)}
-                              </td>
-                              <td className="py-3 px-6 text-right text-red-500">
-                                {stone.toFixed(3)}
-                              </td>
-                              <td className="py-3 px-6 text-right font-bold text-green-600">
-                                {net.toFixed(3)}
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                  {todaysBillings.length === 0 && (
-                    <div className="text-center py-10 text-gray-500">
-                      No gold transactions for today.
+              {/* Filter Billings for Today */}
+              {(() => {
+                const today = new Date().toDateString();
+                const todaysBillings = billings.filter(b =>
+                  new Date(b.createdAt || b.date).toDateString() === today
+                );
+
+                return (
+                  <>
+                    {/* Gold Stats Cards */}
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+                      <div className="bg-yellow-50 p-4 rounded-lg border border-yellow-200 shadow-sm">
+                        <h4 className="font-semibold text-yellow-800">Today's Gross Weight</h4>
+                        <p className="text-2xl font-bold text-yellow-600">
+                          {todaysBillings
+                            .reduce((acc, curr) => acc + (curr.goldDetails?.weight || 0), 0)
+                            .toFixed(3)} g
+                        </p>
+                      </div>
+                      <div className="bg-orange-50 p-4 rounded-lg border border-orange-200 shadow-sm">
+                        <h4 className="font-semibold text-orange-800">Today's Stone Weight</h4>
+                        <p className="text-2xl font-bold text-orange-600">
+                          {todaysBillings
+                            .reduce((acc, curr) => acc + (curr.goldDetails?.stoneWeight || 0), 0)
+                            .toFixed(3)} g
+                        </p>
+                      </div>
+                      <div className="bg-green-50 p-4 rounded-lg border border-green-200 shadow-sm">
+                        <h4 className="font-semibold text-green-800">Today's Net Weight</h4>
+                        <p className="text-2xl font-bold text-green-600">
+                          {todaysBillings
+                            .reduce((acc, curr) => {
+                              const gross = curr.goldDetails?.weight || 0;
+                              const stone = curr.goldDetails?.stoneWeight || 0;
+                              return acc + (gross - stone);
+                            }, 0)
+                            .toFixed(3)} g
+                        </p>
+                      </div>
                     </div>
-                  )}
+
+                    {/* Physical Sales Table */}
+                    <div className="bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden">
+                      <div className="p-4 bg-gray-50 border-b border-gray-200">
+                        <h4 className="font-semibold text-lg text-gray-700">Today's Physical Sales</h4>
+                      </div>
+                      <div className="overflow-x-auto">
+                        <table className="w-full border-collapse">
+                          <thead>
+                            <tr className="bg-gray-100 text-gray-600 uppercase text-sm leading-normal">
+                              <th className="py-3 px-6 text-left">Time</th>
+                              <th className="py-3 px-6 text-left">Invoice No</th>
+                              <th className="py-3 px-6 text-left">Customer</th>
+                              <th className="py-3 px-6 text-left">Ornament</th>
+                              <th className="py-3 px-6 text-left">Code</th>
+                              <th className="py-3 px-6 text-left">Purity</th>
+                              <th className="py-3 px-6 text-right">Gross Wt (g)</th>
+                              <th className="py-3 px-6 text-right">Stone Wt (g)</th>
+                              <th className="py-3 px-6 text-right">Net Wt (g)</th>
+                            </tr>
+                          </thead>
+                          <tbody className="text-gray-600 text-sm font-light">
+                            {todaysBillings.map((billing) => {
+                              const gross = billing.goldDetails?.weight || 0;
+                              const stone = billing.goldDetails?.stoneWeight || 0;
+                              const net = gross - stone;
+                              return (
+                                <tr key={billing._id} className="border-b border-gray-200 hover:bg-gray-50 transition duration-150">
+                                  <td className="py-3 px-6 text-left whitespace-nowrap">
+                                    {new Date(billing.createdAt || billing.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                  </td>
+                                  <td className="py-3 px-6 text-left font-medium text-blue-600">
+                                    {billing.invoiceNo}
+                                  </td>
+                                  <td className="py-3 px-6 text-left">
+                                    {billing.customer?.name}
+                                  </td>
+                                  <td className="py-3 px-6 text-left">
+                                    <span className="bg-yellow-100 text-yellow-800 py-1 px-3 rounded-full text-xs">
+                                      {billing.goldDetails?.ornamentType}
+                                    </span>
+                                  </td>
+                                  <td className="py-3 px-6 text-left font-mono">
+                                    {billing.goldDetails?.ornamentCode}
+                                  </td>
+                                  <td className="py-3 px-6 text-left">
+                                    {billing.goldDetails?.purityLabel}
+                                  </td>
+                                  <td className="py-3 px-6 text-right font-bold">
+                                    {gross.toFixed(3)}
+                                  </td>
+                                  <td className="py-3 px-6 text-right text-red-500">
+                                    {stone.toFixed(3)}
+                                  </td>
+                                  <td className="py-3 px-6 text-right font-bold text-green-600">
+                                    {net.toFixed(3)}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                      {todaysBillings.length === 0 && (
+                        <div className="text-center py-10 text-gray-500">
+                          No physical gold sales for today.
+                        </div>
+                      )}
+                    </div>
+                  </>
+                );
+              })()}
+            </div>
+          )}
+
+          {goldVaultTab === 'renewal' && (
+            <div>
+              <h3 className="text-lg font-semibold mb-4">Bank Gold Renewals</h3>
+              <p className="text-gray-600 mb-4">Customers with gold in bank who need renewal assistance.</p>
+
+              {/* Renewal Stats */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+                <div className="bg-blue-50 p-4 rounded-lg border border-blue-200 shadow-sm">
+                  <h4 className="font-semibold text-blue-800">Total Renewals</h4>
+                  <p className="text-2xl font-bold text-blue-600">{renewals.length}</p>
                 </div>
-              </>
-            );
-          })()}
+                <div className="bg-green-50 p-4 rounded-lg border border-green-200 shadow-sm">
+                  <h4 className="font-semibold text-green-800">Total Commission</h4>
+                  <p className="text-2xl font-bold text-green-600">
+                    ₹{renewals.reduce((acc, r) => acc + (r.renewalDetails?.commissionAmount || 0), 0).toLocaleString('en-IN')}
+                  </p>
+                </div>
+                <div className="bg-purple-50 p-4 rounded-lg border border-purple-200 shadow-sm">
+                  <h4 className="font-semibold text-purple-800">Total Gold Weight</h4>
+                  <p className="text-2xl font-bold text-purple-600">
+                    {renewals.reduce((acc, r) => acc + (r.goldDetails?.weight || 0), 0).toFixed(3)} g
+                  </p>
+                </div>
+              </div>
+
+              {/* Renewals Table */}
+              <div className="bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden">
+                <div className="p-4 bg-gray-50 border-b border-gray-200">
+                  <h4 className="font-semibold text-lg text-gray-700">Renewal Transactions</h4>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full border-collapse">
+                    <thead>
+                      <tr className="bg-gray-100 text-gray-600 uppercase text-sm leading-normal">
+                        <th className="py-3 px-6 text-left">Date</th>
+                        <th className="py-3 px-6 text-left">Renewal No</th>
+                        <th className="py-3 px-6 text-left">Customer</th>
+                        <th className="py-3 px-6 text-left">Bank</th>
+                        <th className="py-3 px-6 text-left">Loan Amount</th>
+                        <th className="py-3 px-6 text-left">Commission</th>
+                        <th className="py-3 px-6 text-right">Gold Weight (g)</th>
+                      </tr>
+                    </thead>
+                    <tbody className="text-gray-600 text-sm font-light">
+                      {renewals.map((renewal) => (
+                        <tr key={renewal._id} className="border-b border-gray-200 hover:bg-gray-50 transition duration-150">
+                          <td className="py-3 px-6 text-left whitespace-nowrap">
+                            {new Date(renewal.createdAt).toLocaleDateString()}
+                          </td>
+                          <td className="py-3 px-6 text-left font-medium text-blue-600">
+                            {renewal.renewalNo}
+                          </td>
+                          <td className="py-3 px-6 text-left">
+                            {renewal.customer?.name}
+                          </td>
+                          <td className="py-3 px-6 text-left">
+                            {renewal.bankDetails?.bankName}
+                          </td>
+                          <td className="py-3 px-6 text-left font-bold">
+                            ₹{renewal.bankDetails?.loanAmount?.toLocaleString('en-IN')}
+                          </td>
+                          <td className="py-3 px-6 text-left text-green-600 font-bold">
+                            ₹{renewal.renewalDetails?.commissionAmount?.toLocaleString('en-IN')}
+                          </td>
+                          <td className="py-3 px-6 text-right font-bold">
+                            {renewal.goldDetails?.weight?.toFixed(3)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                {renewals.length === 0 && (
+                  <div className="text-center py-10 text-gray-500">
+                    No renewal transactions found.
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {goldVaultTab === 'takeover' && (
+            <div>
+              <h3 className="text-lg font-semibold mb-4">Gold Takeovers</h3>
+              <p className="text-gray-600 mb-4">Take over gold from banks/other parties at today's rates.</p>
+
+              {/* Takeover Stats */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+                <div className="bg-red-50 p-4 rounded-lg border border-red-200 shadow-sm">
+                  <h4 className="font-semibold text-red-800">Total Takeovers</h4>
+                  <p className="text-2xl font-bold text-red-600">{takeovers.length}</p>
+                </div>
+                <div className="bg-orange-50 p-4 rounded-lg border border-orange-200 shadow-sm">
+                  <h4 className="font-semibold text-orange-800">Total Takeover Amount</h4>
+                  <p className="text-2xl font-bold text-orange-600">
+                    ₹{takeovers.reduce((acc, t) => acc + (t.takeoverDetails?.takeoverAmount || 0), 0).toLocaleString('en-IN')}
+                  </p>
+                </div>
+                <div className="bg-indigo-50 p-4 rounded-lg border border-indigo-200 shadow-sm">
+                  <h4 className="font-semibold text-indigo-800">Total Gold Weight</h4>
+                  <p className="text-2xl font-bold text-indigo-600">
+                    {takeovers.reduce((acc, t) => acc + (t.goldDetails?.weight || 0), 0).toFixed(3)} g
+                  </p>
+                </div>
+              </div>
+
+              {/* Takeovers Table */}
+              <div className="bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden">
+                <div className="p-4 bg-gray-50 border-b border-gray-200">
+                  <h4 className="font-semibold text-lg text-gray-700">Takeover Transactions</h4>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full border-collapse">
+                    <thead>
+                      <tr className="bg-gray-100 text-gray-600 uppercase text-sm leading-normal">
+                        <th className="py-3 px-6 text-left">Date</th>
+                        <th className="py-3 px-6 text-left">Takeover No</th>
+                        <th className="py-3 px-6 text-left">Customer</th>
+                        <th className="py-3 px-6 text-left">Pledged To</th>
+                        <th className="py-3 px-6 text-left">Takeover Amount</th>
+                        <th className="py-3 px-6 text-left">Profit/Loss</th>
+                        <th className="py-3 px-6 text-right">Gold Weight (g)</th>
+                      </tr>
+                    </thead>
+                    <tbody className="text-gray-600 text-sm font-light">
+                      {takeovers.map((takeover) => (
+                        <tr key={takeover._id} className="border-b border-gray-200 hover:bg-gray-50 transition duration-150">
+                          <td className="py-3 px-6 text-left whitespace-nowrap">
+                            {new Date(takeover.createdAt).toLocaleDateString()}
+                          </td>
+                          <td className="py-3 px-6 text-left font-medium text-blue-600">
+                            {takeover.takeoverNo}
+                          </td>
+                          <td className="py-3 px-6 text-left">
+                            {takeover.customer?.name}
+                          </td>
+                          <td className="py-3 px-6 text-left">
+                            {takeover.pledgeDetails?.pledgedTo}
+                          </td>
+                          <td className="py-3 px-6 text-left font-bold">
+                            ₹{takeover.takeoverDetails?.takeoverAmount?.toLocaleString('en-IN')}
+                          </td>
+                          <td className="py-3 px-6 text-left font-bold">
+                            <span className={takeover.takeoverDetails?.profitLoss >= 0 ? 'text-green-600' : 'text-red-600'}>
+                              ₹{takeover.takeoverDetails?.profitLoss?.toLocaleString('en-IN')}
+                            </span>
+                          </td>
+                          <td className="py-3 px-6 text-right font-bold">
+                            {takeover.goldDetails?.weight?.toFixed(3)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                {takeovers.length === 0 && (
+                  <div className="text-center py-10 text-gray-500">
+                    No takeover transactions found.
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       ),
     },
@@ -441,14 +719,27 @@ const Dashboard = () => {
           {/* Add Cash Form */}
           <div className="bg-blue-50 p-6 rounded-lg mb-6">
             <h3 className="font-semibold text-lg mb-4">Add Cash Entry</h3>
+            {user.role === 'employee' && hasInitialCash && (
+              <div className="bg-yellow-100 border border-yellow-400 text-yellow-700 px-4 py-3 rounded mb-4">
+                Initial cash has already been set. Only admin can reset and allow new initial cash entry.
+              </div>
+            )}
             <form
               className="flex gap-4"
               onSubmit={async (e) => {
                 e.preventDefault();
+
+                // Check if employee is trying to add initial cash when it's already set
+                if (user.role === 'employee' && hasInitialCash) {
+                  alert('Initial cash has already been set. Only admin can reset it.');
+                  return;
+                }
+
                 try {
                   await cashAPI.addCash(cashAmount);
                   setCashAmount('');
                   fetchCashVault();
+                  checkInitialCashStatus();
                   alert('Cash added successfully!');
                 } catch (error) {
                   alert(error.message);
@@ -462,39 +753,160 @@ const Dashboard = () => {
                 onChange={(e) => setCashAmount(e.target.value)}
                 className="flex-1 p-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-400"
                 required
+                disabled={user.role === 'employee' && hasInitialCash}
               />
               <button
                 type="submit"
                 className="bg-blue-500 hover:bg-blue-600 text-white px-6 py-3 rounded-md font-medium transition duration-300"
+                disabled={user.role === 'employee' && hasInitialCash}
               >
                 Add Cash
               </button>
             </form>
+
+            {/* Admin Controls */}
+            {user.role === 'admin' && (
+              <div className="mt-4 pt-4 border-t border-gray-300">
+                <h4 className="font-semibold text-md mb-3">Admin Controls</h4>
+                <div className="flex gap-3">
+                  <button
+                    onClick={resetInitialCash}
+                    className="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-md font-medium transition duration-300 text-sm"
+                  >
+                    Reset Initial Cash
+                  </button>
+                  <button
+                    onClick={fetchMargin}
+                    className="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded-md font-medium transition duration-300 text-sm"
+                  >
+                    Check Margin
+                  </button>
+                  <button
+                    onClick={resetGoldTransactions}
+                    className="bg-orange-500 hover:bg-orange-600 text-white px-4 py-2 rounded-md font-medium transition duration-300 text-sm"
+                  >
+                    Reset All Gold
+                  </button>
+                  <button
+                    onClick={fetchDailyTransactions}
+                    className="bg-purple-500 hover:bg-purple-600 text-white px-4 py-2 rounded-md font-medium transition duration-300 text-sm"
+                  >
+                    Daily Transactions
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Cash Summary */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-6">
             <div className="bg-green-50 p-4 rounded-lg">
-              <h3 className="font-semibold">Total Cash In Vault</h3>
+              <h3 className="font-semibold">Initial Cash</h3>
               <p className="text-2xl font-bold text-green-700">
                 ₹
                 {cashEntries
-                  .filter((e) => e.type === 'cash')
+                  .filter((e) => e.type === 'initial')
                   .reduce((acc, curr) => acc + curr.amount, 0)
                   .toLocaleString('en-IN')}
               </p>
             </div>
-            <div className="bg-yellow-50 p-4 rounded-lg">
-              <h3 className="font-semibold">Total Remaining Cash</h3>
-              <p className="text-2xl font-bold text-yellow-700">
+            <div className="bg-red-50 p-4 rounded-lg">
+              <h3 className="font-semibold">Total Billings</h3>
+              <p className="text-2xl font-bold text-red-700">
                 ₹
                 {cashEntries
-                  .filter((e) => e.type === 'remaining')
+                  .filter((e) => e.type === 'billing')
+                  .reduce((acc, curr) => acc + curr.amount, 0)
+                  .toLocaleString('en-IN')}
+              </p>
+            </div>
+            <div className="bg-blue-50 p-4 rounded-lg">
+              <h3 className="font-semibold">Remaining Cash</h3>
+              <p className="text-2xl font-bold text-blue-700">
+                ₹
+                {(() => {
+                  const initialCash = cashEntries
+                    .filter((e) => e.type === 'initial')
+                    .reduce((acc, curr) => acc + curr.amount, 0);
+                  const totalBillings = cashEntries
+                    .filter((e) => e.type === 'billing')
+                    .reduce((acc, curr) => acc + curr.amount, 0);
+                  return (initialCash - totalBillings).toLocaleString('en-IN');
+                })()}
+              </p>
+            </div>
+            <div className="bg-purple-50 p-4 rounded-lg">
+              <h3 className="font-semibold">Margin</h3>
+              <p className="text-2xl font-bold text-purple-700">
+                ₹
+                {cashEntries
+                  .filter((e) => e.type === 'billing')
                   .reduce((acc, curr) => acc + curr.amount, 0)
                   .toLocaleString('en-IN')}
               </p>
             </div>
           </div>
+
+          {/* Margin Display */}
+          {marginData && (
+            <div className="bg-green-50 p-6 rounded-lg mb-6">
+              <h3 className="font-semibold text-lg mb-4">Current Margin</h3>
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                <div className="bg-white p-4 rounded border">
+                  <div className="text-sm text-gray-600">Initial Cash</div>
+                  <div className="text-2xl font-bold text-green-600">₹{marginData.initialCash.toLocaleString('en-IN')}</div>
+                </div>
+                <div className="bg-white p-4 rounded border">
+                  <div className="text-sm text-gray-600">Total Billings</div>
+                  <div className="text-2xl font-bold text-red-600">₹{marginData.totalBillings.toLocaleString('en-IN')}</div>
+                </div>
+                <div className="bg-white p-4 rounded border">
+                  <div className="text-sm text-gray-600">Remaining Cash</div>
+                  <div className="text-2xl font-bold text-blue-600">₹{marginData.remainingCash.toLocaleString('en-IN')}</div>
+                </div>
+                <div className="bg-white p-4 rounded border">
+                  <div className="text-sm text-gray-600">Margin</div>
+                  <div className={`text-2xl font-bold ${marginData.margin >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                    ₹{marginData.margin.toLocaleString('en-IN')}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Daily Transactions Display */}
+          {dailyTransactions && (
+            <div className="bg-purple-50 p-6 rounded-lg mb-6">
+              <h3 className="font-semibold text-lg mb-4">Daily Transactions Summary ({dailyTransactions.date})</h3>
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
+                <div className="bg-white p-4 rounded border">
+                  <div className="text-sm text-gray-600">Physical Sales</div>
+                  <div className="text-xl font-bold text-blue-600">₹{dailyTransactions.summary.totalBillings.toLocaleString('en-IN')}</div>
+                </div>
+                <div className="bg-white p-4 rounded border">
+                  <div className="text-sm text-gray-600">Renewals</div>
+                  <div className="text-xl font-bold text-green-600">₹{dailyTransactions.summary.totalRenewals.toLocaleString('en-IN')}</div>
+                </div>
+                <div className="bg-white p-4 rounded border">
+                  <div className="text-sm text-gray-600">Takeovers</div>
+                  <div className="text-xl font-bold text-orange-600">₹{dailyTransactions.summary.totalTakeovers.toLocaleString('en-IN')}</div>
+                </div>
+                <div className="bg-white p-4 rounded border">
+                  <div className="text-sm text-gray-600">Net Cash Flow</div>
+                  <div className={`text-xl font-bold ${dailyTransactions.summary.netCashFlow >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                    ₹{dailyTransactions.summary.netCashFlow.toLocaleString('en-IN')}
+                  </div>
+                </div>
+              </div>
+              <div className="text-sm text-gray-600">
+                Total Transactions: {
+                  dailyTransactions.transactions.billings.length +
+                  dailyTransactions.transactions.renewals.length +
+                  dailyTransactions.transactions.takeovers.length
+                }
+              </div>
+            </div>
+          )}
 
           {/* Transactions List */}
           <div className="bg-white border border-gray-200 rounded-lg p-6">
@@ -508,6 +920,9 @@ const Dashboard = () => {
                     </th>
                     <th className="border border-gray-300 px-4 py-2 text-left">
                       Type
+                    </th>
+                    <th className="border border-gray-300 px-4 py-2 text-left">
+                      Description
                     </th>
                     <th className="border border-gray-300 px-4 py-2 text-left">
                       Amount
@@ -525,6 +940,11 @@ const Dashboard = () => {
                       </td>
                       <td className="border border-gray-300 px-4 py-2 capitalize">
                         {entry.type}
+                      </td>
+                      <td className="border border-gray-300 px-4 py-2">
+                        {entry.type === 'initial' ? 'Initial cash added' :
+                         entry.type === 'billing' ? 'Billing deduction' :
+                         entry.type === 'remaining' ? 'Remaining cash added' : entry.type}
                       </td>
                       <td className="border border-gray-300 px-4 py-2 font-bold">
                         ₹{entry.amount.toLocaleString('en-IN')}
@@ -548,7 +968,7 @@ const Dashboard = () => {
         <div>
           <h2 className="text-2xl font-bold mb-4">Billing History</h2>
           <p className="text-gray-600 mb-6">
-            View all billing records, search by customer name or invoice number, and print invoices.
+            View all billing records, search by customer name or date, and print invoices.
           </p>
 
           {/* Search Section */}
@@ -569,13 +989,13 @@ const Dashboard = () => {
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Invoice Number
+                  Date
                 </label>
                 <input
-                  type="text"
-                  placeholder="Search by invoice number"
-                  value={searchInvoice}
-                  onChange={(e) => setSearchInvoice(e.target.value)}
+                  type="date"
+                  placeholder="Search by date"
+                  value={searchDate}
+                  onChange={(e) => setSearchDate(e.target.value)}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-yellow-400 focus:border-yellow-400"
                 />
               </div>
@@ -667,21 +1087,6 @@ const Dashboard = () => {
         </div>
       ),
     },
-   
-    {
-      title: 'Total Amount',
-      icon: <FaCalculator />,
-      content: (
-        <div>
-          <h2 className="text-2xl font-bold mb-4">Total Amount</h2>
-          <p className="text-gray-600 mb-4">Overall financial summary.</p>
-          <div className="bg-purple-50 p-4 rounded-lg">
-            <h3 className="font-semibold">Grand Total</h3>
-            <p className="text-2xl">₹2,00,000</p>
-          </div>
-        </div>
-      ),
-    },
     {
       title: 'Employee Management',
       icon: <FaUsers />,
@@ -692,67 +1097,69 @@ const Dashboard = () => {
             Create and manage employee accounts for the billing system.
           </p>
 
-          {/* Create New Employee Form */}
-          <div className="bg-blue-50 p-6 rounded-lg mb-6">
-            <h3 className="font-semibold text-lg mb-4">Create New Employee</h3>
-            <form
-              className="space-y-4"
-              onSubmit={async (e) => {
-                e.preventDefault();
-                try {
-                  await authAPI.createEmployee(
-                    newEmployee.name,
-                    newEmployee.email,
-                    newEmployee.password
-                  );
-                  setNewEmployee({ name: '', email: '', password: '' });
-                  fetchEmployees();
-                  alert('Employee created successfully!');
-                } catch (error) {
-                  alert(error.message);
-                }
-              }}
-            >
-              <div className="grid grid-cols-2 gap-4">
-                <input
-                  type="text"
-                  placeholder="Employee Name"
-                  value={newEmployee.name}
-                  onChange={(e) =>
-                    setNewEmployee({ ...newEmployee, name: e.target.value })
+          {/* Create New Employee Form - Admin Only */}
+          {user.role === 'admin' && (
+            <div className="bg-blue-50 p-6 rounded-lg mb-6">
+              <h3 className="font-semibold text-lg mb-4">Create New Employee</h3>
+              <form
+                className="space-y-4"
+                onSubmit={async (e) => {
+                  e.preventDefault();
+                  try {
+                    await authAPI.createEmployee(
+                      newEmployee.name,
+                      newEmployee.email,
+                      newEmployee.password
+                    );
+                    setNewEmployee({ name: '', email: '', password: '' });
+                    fetchEmployees();
+                    alert('Employee created successfully!');
+                  } catch (error) {
+                    alert(error.message);
                   }
-                  className="p-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-400"
-                  required
-                />
-                <input
-                  type="email"
-                  placeholder="Employee Email"
-                  value={newEmployee.email}
-                  onChange={(e) =>
-                    setNewEmployee({ ...newEmployee, email: e.target.value })
-                  }
-                  className="p-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-400"
-                  required
-                />
-              </div>
-              <input
-                type="password"
-                placeholder="Employee Password"
-                value={newEmployee.password}
-                onChange={(e) =>
-                  setNewEmployee({ ...newEmployee, password: e.target.value })
-                }
-                className="w-full p-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-400"
-                required
-              />
-              <button
-                type="submit"
-                className="bg-blue-500 hover:bg-blue-600 text-white px-6 py-3 rounded-md font-medium transition duration-300"
+                }}
               >
-                Create Employee Account
-              </button>
-            </form>
-          </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <input
+                    type="text"
+                    placeholder="Employee Name"
+                    value={newEmployee.name}
+                    onChange={(e) =>
+                      setNewEmployee({ ...newEmployee, name: e.target.value })
+                    }
+                    className="p-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-400"
+                    required
+                  />
+                  <input
+                    type="email"
+                    placeholder="Employee Email"
+                    value={newEmployee.email}
+                    onChange={(e) =>
+                      setNewEmployee({ ...newEmployee, email: e.target.value })
+                    }
+                    className="p-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-400"
+                    required
+                  />
+                </div>
+                <input
+                  type="password"
+                  placeholder="Employee Password"
+                  value={newEmployee.password}
+                  onChange={(e) =>
+                    setNewEmployee({ ...newEmployee, password: e.target.value })
+                  }
+                  className="w-full p-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-400"
+                  required
+                />
+                <button
+                  type="submit"
+                  className="bg-blue-500 hover:bg-blue-600 text-white px-6 py-3 rounded-md font-medium transition duration-300"
+                >
+                  Create Employee Account
+                </button>
+              </form>
+            </div>
+          )}
 
           {/* Existing Employees List */}
           <div className="bg-white border border-gray-200 rounded-lg p-6">
@@ -875,6 +1282,42 @@ const Dashboard = () => {
     }
   };
 
+  const fetchRenewals = async () => {
+    try {
+      const response = await renewalAPI.getAllRenewals();
+      if (response.success) {
+        setRenewals(response.data);
+      }
+    } catch (error) {
+      console.error('Error fetching renewals:', error);
+    }
+  };
+
+  const fetchTakeovers = async () => {
+    try {
+      const response = await takeoverAPI.getAllTakeovers();
+      if (response.success) {
+        setTakeovers(response.data);
+      }
+    } catch (error) {
+      console.error('Error fetching takeovers:', error);
+    }
+  };
+
+  const checkInitialCashStatus = async () => {
+    try {
+      const response = await cashAPI.checkInitialCashExists();
+      if (response.success) {
+        setHasInitialCash(response.hasInitialCash);
+      }
+    } catch (error) {
+      console.error('Error checking initial cash:', error);
+    }
+  };
+
+
+
+
   const loadCompany = async () => {
     try {
       const res = await fetch('/data/data.json');
@@ -892,6 +1335,9 @@ const Dashboard = () => {
       fetchEmployees();
       fetchCashVault();
       fetchBillings();
+      fetchRenewals();
+      fetchTakeovers();
+      checkInitialCashStatus();
       loadCompany();
     }
   }, [user, navigate]);
@@ -925,11 +1371,16 @@ const Dashboard = () => {
 
         {/* Profile */}
         <div className="flex flex-col justify-center items-center mt-2 mb-10">
-          <img
-            src="/images/logo.png"
-            className="rounded-full w-20 h-20 object-cover border-2 border-gray-900 shadow-md"
-            alt="profile"
-          />
+          <button
+            onClick={() => navigate('/')}
+            className="cursor-pointer hover:opacity-80 transition-opacity"
+          >
+            <img
+              src="/images/Sujana-Gold-Logo.jpeg"
+              className="w-20 h-20 object-contain border-2 border-gray-900 shadow-md rounded-lg"
+              alt="logo"
+            />
+          </button>
         </div>
 
         {/* Menu */}
@@ -965,7 +1416,75 @@ const Dashboard = () => {
           </p>
         </div>
         <div className="bg-white w-full h-[75vh] rounded-xl shadow-md p-10 overflow-y-auto">
-          {menuItems.find((item) => item.title === activeItem)?.content}
+          {activeItem === '' ? (
+            <div className="text-center py-20">
+              <div className="mb-8">
+                <img
+                  src="/images/Sujana-Gold-Logo.jpeg"
+                  alt="Sujana Gold Logo"
+                  className="w-32 h-32 mx-auto mb-6 object-contain shadow-lg rounded-lg"
+                />
+                <h1 className="text-4xl font-bold text-gray-800 mb-4">
+                  Welcome to Sujana Gold Dashboard
+                </h1>
+                <p className="text-xl text-gray-600 mb-8">
+                  Your comprehensive gold trading management system
+                </p>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+                <div className="bg-gradient-to-br from-yellow-400 to-yellow-600 p-6 rounded-lg text-white">
+                  <FaCoins className="text-3xl mb-3" />
+                  <h3 className="text-lg font-semibold mb-2">Gold Vault</h3>
+                  <p className="text-sm opacity-90">Manage physical sales, renewals, and takeovers</p>
+                </div>
+
+                <div className="bg-gradient-to-br from-green-400 to-green-600 p-6 rounded-lg text-white">
+                  <FaMoneyBillWave className="text-3xl mb-3" />
+                  <h3 className="text-lg font-semibold mb-2">Cash Management</h3>
+                  <p className="text-sm opacity-90">Track cash flow and margins</p>
+                </div>
+
+                <div className="bg-gradient-to-br from-blue-400 to-blue-600 p-6 rounded-lg text-white">
+                  <FaFileInvoice className="text-3xl mb-3" />
+                  <h3 className="text-lg font-semibold mb-2">Billing History</h3>
+                  <p className="text-sm opacity-90">View and manage all transactions</p>
+                </div>
+
+                <div className="bg-gradient-to-br from-purple-400 to-purple-600 p-6 rounded-lg text-white">
+                  <FaUsers className="text-3xl mb-3" />
+                  <h3 className="text-lg font-semibold mb-2">Employee Management</h3>
+                  <p className="text-sm opacity-90">Manage your team</p>
+                </div>
+              </div>
+
+              <div className="bg-gray-50 p-6 rounded-lg">
+                <h2 className="text-2xl font-semibold text-gray-800 mb-4">Quick Actions</h2>
+                <div className="flex flex-wrap justify-center gap-4">
+                  <button
+                    onClick={() => setActiveItem('Gold Vault')}
+                    className="bg-yellow-500 hover:bg-yellow-600 text-white px-6 py-3 rounded-lg font-medium transition duration-300"
+                  >
+                    View Gold Vault
+                  </button>
+                  <button
+                    onClick={() => setActiveItem('Cash Volt')}
+                    className="bg-green-500 hover:bg-green-600 text-white px-6 py-3 rounded-lg font-medium transition duration-300"
+                  >
+                    Manage Cash
+                  </button>
+                  <button
+                    onClick={() => setActiveItem('User Vault')}
+                    className="bg-blue-500 hover:bg-blue-600 text-white px-6 py-3 rounded-lg font-medium transition duration-300"
+                  >
+                    View Billings
+                  </button>
+                </div>
+              </div>
+            </div>
+          ) : (
+            menuItems.find((item) => item.title === activeItem)?.content
+          )}
         </div>
       </div>
     </div>
