@@ -1,11 +1,13 @@
-import React, { useEffect, useState, useRef } from "react";
-import { useAdmin } from "../contexts/AdminContext";
+import React, { useEffect, useState } from 'react';
+import { useAdmin } from '../contexts/AdminContext';
+import { numberToWords } from '../utils/numberUtils';
+import { billingAPI } from '../services/api';
 
 const PURITIES = [
-  { label: "24K — 100%", multiplier: 1.0 },
-  { label: "22K — 91.6%", multiplier: 0.916 },
-  { label: "20K — 83.3%", multiplier: 0.833 },
-  { label: "18K — 75%", multiplier: 0.75 },
+  { label: '24K — 100%', multiplier: 1.0 },
+  { label: '22K — 91.6%', multiplier: 0.916 },
+  { label: '20K — 83.3%', multiplier: 0.833 },
+  { label: '18K — 75%', multiplier: 0.75 },
 ];
 
 const DEDUCTION_PER_GRAM = 400;
@@ -14,48 +16,70 @@ const Billing = () => {
   const { goldPrices } = useAdmin();
   const [showForm, setShowForm] = useState(true);
   const [company, setCompany] = useState(null);
-  const [logoDataUrl, setLogoDataUrl] = useState(null);
 
   const [customer, setCustomer] = useState({
-    name: "",
-    mobile: "",
-    aadhar: "",
-    pan: "",
-    gender: "",
-    address: "",
+    name: '',
+    mobile: '',
+    aadhar: '',
+    pan: '',
+    gender: '',
+    address: '',
   });
 
   // ✅ FIXED
-  const [weight, setWeight] = useState("");
-  const [stoneWeight, setStoneWeight] = useState("");
+  const [weight, setWeight] = useState('');
+  const [stoneWeight, setStoneWeight] = useState('');
   const [purityIndex, setPurityIndex] = useState(0);
+  const [ornamentType, setOrnamentType] = useState('Gold Ornament');
+  const [ornamentCode, setOrnamentCode] = useState(() =>
+    Math.floor(100 + Math.random() * 900).toString()
+  );
+
+  // New State for Billing Requirements
+  const [billingType, setBillingType] = useState('Physical');
+  const [bankName, setBankName] = useState('');
+  const [commissionPercentage, setCommissionPercentage] = useState(2);
+  const [commissionAmount, setCommissionAmount] = useState(0);
+  const [renewalAmount, setRenewalAmount] = useState(100000); // Default 1 Lakh
+
+  // Removed useEffect for auto-calculation
+  // useEffect(() => { ... }, [commissionPercentage]);
 
   const [result, setResult] = useState(null);
+  const [errors, setErrors] = useState({});
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isBillingSaved, setIsBillingSaved] = useState(false);
+  const [initialFormData, setInitialFormData] = useState(null);
+  const [customerPhoto, setCustomerPhoto] = useState(null);
+  const [photoPreview, setPhotoPreview] = useState(null);
 
   // load company data
   useEffect(() => {
     async function loadCompany() {
       try {
-        const res = await fetch("/data/data.json");
+        const res = await fetch('/data/data.json');
         const json = await res.json();
         setCompany(json);
-
-        if (json.logoFile) {
-          const imgRes = await fetch(`/images/${json.logoFile}`);
-          const blob = await imgRes.blob();
-          const reader = new FileReader();
-          reader.onload = () => setLogoDataUrl(reader.result);
-          reader.readAsDataURL(blob);
-        }
       } catch (e) {
-        console.warn("Company load error", e);
+        console.warn('Company load error', e);
       }
     }
     loadCompany();
   }, []);
 
+  async function getNextInvoice() {
+    try {
+      const res = await billingAPI.getNextInvoice();
+      if (res.success) {
+        return res.invoiceNo;
+      }
+    } catch (error) {
+      console.error("Failed to get next invoice", error);
+    }
+    return 'INV0001'; // Fallback
+  }
 
-  function calculate() {
+  async function calculate() {
     const grossW = parseFloat(weight || 0);
     const stoneW = parseFloat(stoneWeight || 0);
     const netW = grossW - stoneW;
@@ -65,15 +89,31 @@ const Billing = () => {
       return;
     }
 
-    const purity = PURITIES[purityIndex];
-    const purityKey = purity.label.split(" ")[0];
+    let calculatedCommission = 0;
+    if (billingType === 'Renewal') {
+      try {
+        const res = await billingAPI.calculateRenewal(commissionPercentage, renewalAmount);
+        if (res.success) {
+          calculatedCommission = res.commissionAmount;
+          setCommissionAmount(calculatedCommission);
+        }
+      } catch (error) {
+        console.error("Failed to calculate commission", error);
+        alert("Failed to calculate commission from backend");
+        return;
+      }
+    }
 
-    const selectedRate =
-      goldPrices?.[purityKey] || 5000; // fallback if admin not set
+    const purity = PURITIES[purityIndex];
+    const purityKey = purity.label.split(' ')[0];
+
+    const selectedRate = goldPrices?.[purityKey] || 5000; // fallback if admin not set
 
     const gross = netW * selectedRate;
     const deduction = netW * DEDUCTION_PER_GRAM;
     const finalPayout = Math.max(0, gross - deduction);
+
+    const currentInvoiceNo = result?.invoiceNo || await getNextInvoice();
 
     setResult({
       purityLabel: purity.label,
@@ -83,115 +123,544 @@ const Billing = () => {
       net: netW,
       finalPayout,
       date: new Date(),
-      invoiceNo: generateInvoiceNo(),
+      invoiceNo: currentInvoiceNo,
+      ornamentType,
+      ornamentCode,
+      // Add commission to result for display/invoice
+      commissionAmount: calculatedCommission,
     });
   }
 
-  function generateInvoiceNo() {
-    const d = new Date();
-    return (
-      "INV-" +
-      d.getFullYear().toString().slice(-2) +
-      (d.getMonth() + 1).toString().padStart(2, "0") +
-      d.getDate().toString().padStart(2, "0") +
-      "-" +
-      Math.floor(Math.random() * 9000 + 1000)
-    );
-  }
+  // Photo handling functions
+  const handlePhotoCapture = (event) => {
+    const file = event.target.files[0];
+    if (file) {
+      // Validate file type
+      if (!file.type.startsWith('image/')) {
+        alert('Please select a valid image file');
+        return;
+      }
 
-  function printInvoice() {
-    if (!result) return alert("Please calculate the amount first!");
+      // Validate file size (max 5MB)
+      if (file.size > 5 * 1024 * 1024) {
+        alert('Image size should be less than 5MB');
+        return;
+      }
+
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        setCustomerPhoto(file);
+        setPhotoPreview(e.target.result);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const removePhoto = () => {
+    setCustomerPhoto(null);
+    setPhotoPreview(null);
+  };
+
+  // Initialize form data tracking
+  useEffect(() => {
+    setInitialFormData({
+      customer,
+      billingType,
+      bankName,
+      renewalAmount,
+      commissionPercentage,
+      weight,
+      stoneWeight,
+      purityIndex,
+      ornamentType,
+      ornamentCode,
+      customerPhoto: photoPreview,
+    });
+  }, []);
+
+  // Check if form has changes
+  const hasFormChanged = () => {
+    if (!initialFormData) return false;
+
+    const currentData = {
+      customer,
+      billingType,
+      bankName,
+      renewalAmount,
+      commissionPercentage,
+      weight,
+      stoneWeight,
+      purityIndex,
+      ornamentType,
+      ornamentCode,
+      customerPhoto: photoPreview,
+    };
+
+    const hasChanged = JSON.stringify(currentData) !== JSON.stringify(initialFormData);
+
+    // Reset billing saved state if form has changed
+    if (hasChanged && isBillingSaved) {
+      setIsBillingSaved(false);
+    }
+
+    return hasChanged;
+  };
+
+  // Check for duplicates in database
+  const checkForDuplicates = async () => {
+    try {
+      // Check if invoice number already exists (if result exists)
+      if (result?.invoiceNo) {
+        const existingBillings = await billingAPI.getAllBillings();
+        if (existingBillings.success) {
+          const duplicate = existingBillings.data.find(billing =>
+            billing.invoiceNo === result.invoiceNo
+          );
+          if (duplicate) {
+            return { hasDuplicate: true, message: 'Invoice number already exists in database' };
+          }
+        }
+      }
+
+      // Check for duplicate customer + gold details (same customer, same weight, same day)
+      const today = new Date().toDateString();
+      const existingBillings = await billingAPI.getAllBillings();
+      if (existingBillings.success) {
+        const duplicate = existingBillings.data.find(billing => {
+          const billingDate = new Date(billing.createdAt || billing.date).toDateString();
+          return billingDate === today &&
+                 billing.customer?.name === customer.name &&
+                 billing.customer?.mobile === customer.mobile &&
+                 billing.goldDetails?.weight === parseFloat(weight);
+        });
+        if (duplicate) {
+          return {
+            hasDuplicate: true,
+            message: 'Similar billing already exists for this customer today with same weight'
+          };
+        }
+      }
+
+      return { hasDuplicate: false };
+    } catch (error) {
+      console.error('Error checking for duplicates:', error);
+      return { hasDuplicate: false }; // Allow save if check fails
+    }
+  };
+
+  // Save billing data function
+  const saveBilling = async () => {
+    if (!result) {
+      alert('Please calculate the amount first!');
+      return;
+    }
+
+    // Check if form has changes
+    if (!hasFormChanged()) {
+      alert('No changes detected. Please modify the form before saving.');
+      return;
+    }
+
+    // Validate form
+    if (!validateForm()) {
+      alert('Please fix the validation errors before saving.');
+      return;
+    }
+
+    // Check for duplicates
+    const duplicateCheck = await checkForDuplicates();
+    if (duplicateCheck.hasDuplicate) {
+      alert(`Cannot save: ${duplicateCheck.message}`);
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      const billingData = {
+        customer,
+        goldDetails: {
+          weight: parseFloat(weight),
+          stoneWeight: parseFloat(stoneWeight),
+          purityIndex,
+          purityLabel: result.purityLabel,
+          ornamentType,
+          ornamentCode,
+        },
+        calculation: {
+          selectedRatePerGram: result.selectedRatePerGram,
+          grams: result.grams,
+          stone: result.stone,
+          net: result.net,
+          finalPayout: result.finalPayout,
+        },
+        invoiceNo: result.invoiceNo,
+        billingType,
+        bankName: billingType !== 'Physical' ? bankName : undefined,
+        commissionPercentage: billingType === 'Renewal' ? commissionPercentage : undefined,
+        commissionAmount: billingType === 'Renewal' ? commissionAmount : undefined,
+      };
+
+      await billingAPI.createBilling(billingData);
+      alert('Billing saved successfully!');
+      setIsBillingSaved(true);
+
+      // Update initial form data to current state
+      setInitialFormData({
+        customer,
+        billingType,
+        bankName,
+        renewalAmount,
+        commissionPercentage,
+        weight,
+        stoneWeight,
+        purityIndex,
+        ornamentType,
+        ornamentCode,
+        customerPhoto: photoPreview,
+      });
+
+    } catch (error) {
+      alert('Failed to save billing: ' + error.message);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  // Validation functions
+  const validateForm = () => {
+    const newErrors = {};
+
+    // Customer Name validation
+    if (!customer.name.trim()) {
+      newErrors.name = 'Customer name is required';
+    } else if (customer.name.trim().length < 2) {
+      newErrors.name = 'Customer name must be at least 2 characters';
+    }
+
+    // Mobile validation
+    if (!customer.mobile.trim()) {
+      newErrors.mobile = 'Mobile number is required';
+    } else if (!/^[6-9]\d{9}$/.test(customer.mobile.trim())) {
+      newErrors.mobile = 'Mobile number must be 10 digits starting with 6-9';
+    }
+
+    // Aadhar validation
+    if (!customer.aadhar.trim()) {
+      newErrors.aadhar = 'Aadhar number is required';
+    } else if (!/^\d{12}$/.test(customer.aadhar.trim())) {
+      newErrors.aadhar = 'Aadhar number must be exactly 12 digits';
+    }
+
+    // PAN validation
+    if (!customer.pan.trim()) {
+      newErrors.pan = 'PAN number is required';
+    } else if (!/^[A-Z]{5}[0-9]{4}[A-Z]{1}$/.test(customer.pan.trim().toUpperCase())) {
+      newErrors.pan = 'PAN number must be 10 characters: 5 letters, 4 numbers, 1 letter (e.g., ABCDE1234F)';
+    }
+
+    // Gender validation
+    if (!customer.gender) {
+      newErrors.gender = 'Gender is required';
+    }
+
+    // Address validation
+    if (!customer.address.trim()) {
+      newErrors.address = 'Address is required';
+    } else if (customer.address.trim().length < 10) {
+      newErrors.address = 'Address must be at least 10 characters';
+    }
+
+    // Gold details validation
+    if (!weight || parseFloat(weight) <= 0) {
+      newErrors.weight = 'Gross weight must be greater than 0';
+    }
+
+    if (parseFloat(stoneWeight || 0) >= parseFloat(weight || 0)) {
+      newErrors.stoneWeight = 'Stone weight cannot be greater than or equal to gross weight';
+    }
+
+    if (!ornamentType.trim()) {
+      newErrors.ornamentType = 'Ornament type is required';
+    }
+
+    if (!ornamentCode.trim()) {
+      newErrors.ornamentCode = 'Ornament code is required';
+    }
+
+    // Billing type specific validations
+    if (billingType === 'Renewal' || billingType === 'TakeOver') {
+      if (!bankName.trim()) {
+        newErrors.bankName = 'Bank name is required for renewal/takeover';
+      }
+    }
+
+    if (billingType === 'Renewal') {
+      if (!renewalAmount || parseFloat(renewalAmount) <= 0) {
+        newErrors.renewalAmount = 'Renewal amount must be greater than 0';
+      }
+    }
+
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
+
+  const clearErrors = () => {
+    setErrors({});
+  };
+
+  // Removed generateInvoiceNo using localStorage
+  // function generateInvoiceNo() { ... }
+
+  async function printInvoice() {
+    if (!result) return alert('Please calculate the amount first!');
+
+    // Check if billing is saved before printing
+    if (!isBillingSaved) {
+      alert('Please save the billing data first before printing the invoice.');
+      return;
+    }
+
+    // Validate form before proceeding
+    if (!validateForm()) {
+      alert('Please fix the validation errors before printing.');
+      return;
+    }
 
     const comp = company;
     const c = customer;
     const r = result;
 
     const html = `
-      <html>
+      <!DOCTYPE html>
+      <html lang="en">
       <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
         <title>${r.invoiceNo}</title>
         <style>
-          body { font-family: Arial; padding: 20px; }
-          table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-          th, td { border: 1px solid #000; padding: 8px; }
-          .header { text-align: center; margin-bottom: 10px; }
-          .terms { margin-top: 20px; font-size: 12px; }
-          @media print { button { display:none; } }
+          body { font-family: Arial, sans-serif; padding: 0; margin: 0; background: white; }
+          .invoice-container { width: 1000px; min-height: 1425px; margin: auto; border: 1px solid black; padding: 10px; }
+          table { width: 100%; border-collapse: collapse; font-size: 14px; }
+          th, td { border: 1px solid black; padding: 6px; text-align: left; }
+          .center { text-align: center; }
+          .bold { font-weight: bold; }
+          .header-table td { border: none; }
+          .no-border td { border: none !important; }
+          .logo { text-align: center; margin-bottom: 10px; }
+          .logo img { width: 80px; height: 60px; object-fit: contain; }
+          .terms-signatures { margin-top: 15px; }
+          @page {
+            margin: 0.5cm;
+            size: A4;
+          }
+          @media print {
+            .no-print { display: none; }
+            body {
+              margin: 0;
+              padding: 0;
+              -webkit-print-color-adjust: exact;
+              color-adjust: exact;
+            }
+            .invoice-container {
+              width: 100% !important;
+              max-width: 18cm !important;
+              height: auto !important;
+              min-height: auto !important;
+              margin: 0 !important;
+              border: 1px solid black !important;
+              padding: 8px !important;
+              box-sizing: border-box !important;
+            }
+          }
         </style>
       </head>
-
       <body>
-
-        <div class="header">
-          <img src="/images/${comp.logoFile}" width="80" />
-          <h2>${comp.companyName}</h2>
-          <p>${comp.addressLine1}<br/>${comp.addressLine2}<br/>Phone: ${comp.phone}</p>
+        <div class="no-print" style="text-align:center; margin:10px;">
+          <button onclick="window.print()" style="padding:10px 20px; background:#d4a017; border:none; color:white; font-size:16px; cursor:pointer;">
+            Print Invoice
+          </button>
         </div>
 
-        <h3>Customer Details</h3>
-        <p><b>Name:</b> ${c.name}</p>
-        <p><b>Mobile:</b> ${c.mobile}</p>
-        <p><b>Aadhar:</b> ${c.aadhar}</p>
-        <p><b>PAN:</b> ${c.pan}</p>
-        <p><b>Gender:</b> ${c.gender}</p>
-        <p><b>Address:</b> ${c.address}</p>
+        <div class="invoice-container">
+          <!-- HEADER -->
+          <table class="header-table">
+            <tr>
+              <td class="center" colspan="3">
+                <div class="logo">
+                  <img src="/images/${comp.logoFile}" alt="${comp.companyName}" />
+                </div>
+                <div class="bold" style="font-size:24px; margin-top:5px;">
+                  ${comp.companyName}
+                </div>
+                <div style="font-size:12px; margin-top:5px; line-height:1.4;">
+                  ${comp.addressLine1} <br>
+                  ${comp.addressLine2} <br>
+                  <b>Phone:</b> ${comp.phone}
+                </div>
+              </td>
+            </tr>
+          </table>
 
-        <h3>Gold Details</h3>
+          <!-- TOP COMPANY INFO ROW -->
+          <table>
+            <tr>
+              <td><b>BRANCH :</b> Kadapa - Central</td>
+              <td><b>CONTACT :</b> ${comp.phone}</td>
+              <td><b>INVOICE NO :</b> ${r.invoiceNo}</td>
+            </tr>
+          </table>
 
-        <table>
-          <tr>
-            <th>Purity</th>
-            <th>Gross Weight</th>
-            <th>Stone Wt</th>
-            <th>Net Wt</th>
-            <th>Final Payout</th>
-          </tr>
+          <table>
+            <tr>
+              <!-- Left side fields -->
+              <td><b>CUSTOMER ID</b><br> SUJANA-${r.invoiceNo.split('-').pop()}</td>
+              <td><b>DATE / TIME</b><br> ${new Date(r.date).toLocaleString()}</td>
 
-          <tr>
-            <td>${r.purityLabel}</td>
-            <td>${r.grams} g</td>
-            <td>${r.stone} g</td>
-            <td>${r.net} g</td>
-            <td>₹ ${Number(r.finalPayout).toLocaleString("en-IN", { minimumFractionDigits: 2 }) || "0.00"}</td>
-          </tr>
-        </table>
+              <!-- RIGHT SIDE PHOTO + ID PROOF + ADDRESS PROOF -->
+              <td rowspan="4" style="width:180px; padding:0; margin:0; border:1px solid black; vertical-align:top;">
+                <!-- PHOTO BOX -->
+                <div style="width:100%; height:130px; border-bottom:1px solid black; display:flex; align-items:center; justify-content:center;">
+                  ${photoPreview ? `<img src="${photoPreview}" style="width:100%; height:100%; object-fit:cover;" alt="Customer Photo" />` : '<div style="text-align:center; color:#999;">Photo</div>'}
+                </div>
+                <!-- ID PROOF ROW -->
+                <div style="border-bottom:1px solid black; padding:6px; font-size:13px;">
+                  <b>ID PROOF</b><br>
+                  <div style="margin-top:4px; width:100%; border:1px solid black; height:28px; text-align:center; padding-top:4px;">
+                    ${c.aadhar || '____________'}
+                  </div>
+                </div>
+                <!-- ADDRESS PROOF ROW -->
+                <div style="padding:6px; font-size:13px;">
+                  <b>PAN NO</b><br>
+                  <div style="margin-top:4px; width:100%; border:1px solid black; height:28px; text-align:center; padding-top:4px;">
+                    ${c.pan || '____________'}
+                  </div>
+                </div>
+              </td>
+            </tr>
 
-        <div class="terms">
-          <h4>Terms & Conditions</h4>
+            <tr>
+              <td>
+                <div style="display:flex; justify-content:space-between;">
+                  <div><b>CUSTOMER NAME</b><br> ${c.name}</div>
+                  <div style="border-left:1px solid black; padding-left:10px; margin-left:10px;">
+                    <b>GENDER</b><br> ${c.gender}
+                  </div>
+                </div>
+              </td>
+              <td><b>BILL ID</b><br> ${r.invoiceNo}</td>
+            </tr>
 
-          <p><b>ENGLISH</b></p>
-          <p>Ornaments once sold to Sujana Gold Company shall not be returned under any circumstances.</p>
-          <p>If any losses arise out of this transaction, you shall be fully liable to settle the entire amount.</p>
-          <p>Selling stolen, counterfeit, or fake gold/silver is a criminal offence. If such items are identified, the matter will be reported to the authorities.</p>
-          <p>Ornaments are being purchased from you based on your declaration that you are the rightful owner and possess full saleable title to the items. You fully agree to indemnify Sujana Gold Company and its employees against any claims, disputes, or criminal liabilities arising in the future related to this transaction.</p>
-          <p>Please verify the cash before leaving the counter. No claims regarding shortages or discrepancies will be accepted thereafter.</p>
+            <tr>
+              <td><b>CONTACT</b><br> ${c.mobile}</td>
+              <td><b>GOLD PRICE</b><br> ₹ ${r.selectedRatePerGram}/g</td>
+            </tr>
 
-          <p><b>TELUGU (తెలుగు)</b></p>
-          <p>సుజనా గోల్డ్ కంపెనీకి ఒకసారి అమ్మిన ఆభరణాలు ఏ పరిస్థితుల్లోనూ తిరిగి ఇవ్వబడవు.</p>
-          <p>ఈ లావాదేవీ నుండి ఏవైనా నష్టాలు కలిగితే, వాటిని పూర్తిగా పరిష్కరించాల్సిన బాధ్యత మీపై ఉంటుంది.</p>
-          <p>దొంగిలించిన, నకిలీ లేదా నాసిరకం బంగారం/వెండి అమ్మడం క్రిమినల్ నేరం. అలాంటి వస్తువులు గుర్తించబడితే అధికారులకు సమాచారం ఇచ్చబడుతుంది.</p>
-          <p>మీరు అమ్ముతున్న ఆభరణాలు మీ స్వంతం అని, వాటిపై మీకు పూర్తి హక్కు ఉందని మీరు ప్రకటించిన ఆధారంగా సుజనా గోల్డ్ కంపెనీ కొనుగోలు చేస్తోంది. ఈ లావాదేవీకి సంబంధించి భవిష్యత్తులో ఏర్పడే ఏవైనా వివాదాలు లేదా క్రిమినల్ బాధ్యతల విషయంలో సుజనా గోల్డ్ కంపెనీ మరియు దాని ఉద్యోగులను మీరు పూర్తిగా రక్షించేందుకు అంగీకరిస్తున్నారు.</p>
-          <p>కౌంటర్ నుండి వెళ్లే ముందు నగదును తప్పనిసరిగా సరిచూసుకోండి. తరువాత నగదు లోటు లేదా తేడాలపై ఎలాంటి ఫిర్యాదులు స్వీకరించబడవు.</p>
+            <tr>
+              <td colspan="2">
+                <b>ADDRESS :</b> ${c.address}
+              </td>
+            </tr>
+          </table>
 
-          <p><b>HINDI (हिन्दी)</b></p>
-          <p>एक बार सुजाना गोल्ड कंपनी को बेचे गए आभूषण किसी भी परिस्थिति में वापस नहीं लिए जाएंगे।</p>
-          <p>इस लेनदेन से उत्पन्न होने वाले किसी भी प्रकार के नुकसान की पूरी जिम्मेदारी आपकी होगी और आपको पूरा भुगतान करना होगा।</p>
-          <p>चोरी का, नकली या मिलावटी सोना/चांदी बेचना एक दंडनीय अपराध है। ऐसे सामान पाए जाने पर इसकी सूचना संबंधित अधिकारियों को दी जाएगी।</p>
-          <p>आपके द्वारा दिए गए इस घोषणा-पत्र के आधार पर सुजाना गोल्ड कंपनी आभूषण खरीद रही है कि आप इन आभूषणों के असली मालिक हैं और इन्हें बेचने का पूरा अधिकार आपको है। इस लेनदेन से संबंधित भविष्य में होने वाले किसी भी दावे, विवाद या आप पर लगने वाली किसी भी आपराधिक ज़िम्मेदारी से सुजाना गोल्ड कंपनी और उसके कर्मचारियों को आप पूर्ण रूप से मुक्त रखेंगे।</p>
-          <p>काउंटर छोड़ने से पहले कृपया नकदी अवश्य जाँच लें। बाद में किसी भी प्रकार की कमी या गड़बड़ी की शिकायत स्वीकार नहीं की जाएगी</p>
+          <!-- ITEMS TABLE -->
+          <table>
+            <tr class="center bold">
+              <th>ORNAMENT TYPE</th>
+              <th>CODE</th>
+              <th>GROSS WEIGHT</th>
+              <th>STONE / WAX</th>
+              <th>NET WEIGHT</th>
+              <th>PURITY</th>
+              <th>GROSS AMOUNT</th>
+            </tr>
 
-          <div style="margin-top:40px; text-align:right;">
-            ________________________ <br/>
-            Signature
-          </div>
+            <tr class="center">
+              <td>${r.ornamentType}</td>
+              <td>${r.ornamentCode}</td>
+              <td>${r.grams} g</td>
+              <td>${r.stone} g</td>
+              <td>${r.net} g</td>
+              <td>${r.purityLabel}</td>
+              <td>₹ ${Number(r.finalPayout).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+            </tr>
+
+            <tr class="center bold">
+              <td colspan="2">GRAND TOTAL</td>
+              <td>${r.grams}</td>
+              <td>${r.stone}</td>
+              <td>${r.net}</td>
+              <td>-</td>
+              <td>₹ ${Number(r.finalPayout).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+            </tr>
+          </table>
+
+          <!-- TERMS + AMOUNTS SIDE BY SIDE -->
+          <table class="terms-signatures">
+            <tr>
+              <!-- LEFT: TERMS -->
+              <td style="width:65%; vertical-align:top; padding:10px;">
+                <div class="bold center">TERMS & CONDITIONS</div>
+                <div style="font-size:13px; line-height:1.4;">
+                  1. Ornaments once purchased shall not be returned under any circumstances. <br>
+                  2. If any losses are arising out of this purchase, then you are liable to settle full amount. <br>
+                  3. Selling stolen gold, silver or fake gold is a criminal offence; if found will be reported. <br>
+                  4. You declare full ownership of the ornaments sold & indemnify Sujana Gold Company. <br>
+                  5. Check cash before leaving the counter; no claims accepted afterward.
+                </div>
+                <br>
+                <div class="bold center">షరతులు మరియు నిబంధనలు</div>
+                <div style="font-size:13px; line-height:1.6;">
+                  1. ఒకసారి కొనుగోలు చేసిన ఆభరణాలు తిరిగి స్వీకరించబడవు. <br>
+                  2. ఈ కొనుగోలుతో సంబంధిత నష్టాలకు మీరు బాధ్యత వహించాలి. <br>
+                  3. నకిలీ లేదా దొంగతనం చేసిన బంగారం అమ్మడం నేరం. <br>
+                  4. అమ్మిన ఆభరణాల యాజమాన్యం మీదే అని మీరు ప్రకటిస్తున్నారు. <br>
+                  5. కౌంటర్ వదిలే ముందు నగదు సరిచూసుకోండి.
+                </div>
+              </td>
+
+              <!-- RIGHT: SIGNATURES -->
+              <td style="width:35%; padding:0; vertical-align:top;">
+                <!-- SIGNATURE SECTION -->
+                <table style="width:100%; border-collapse: collapse; margin-top:10px;">
+                  <tr>
+                    <td style="width:100%; height:120px; border:1px solid black; text-align:center; font-weight:bold; vertical-align:bottom; padding:15px 10px 10px 10px; position:relative;">
+                      <div style="position:absolute; bottom:8px; left:50%; transform:translateX(-50%); font-size:13px;">
+                        CUSTOMER SIGNATURE
+                      </div>
+                      <div style="height: 70%; display:flex; align-items:center; justify-content:center; font-size:11px; color:#666; margin-bottom:20px;">
+                        Please sign here
+                      </div>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td style="width:100%; height:120px; border:1px solid black; text-align:center; font-weight:bold; vertical-align:bottom; padding:15px 10px 10px 10px; position:relative;">
+                      <div style="position:absolute; bottom:8px; left:50%; transform:translateX(-50%); font-size:13px;">
+                        EMPLOYEE SIGNATURE
+                      </div>
+                      <div style="height: 70%; display:flex; align-items:center; justify-content:center; font-size:11px; color:#666; margin-bottom:20px;">
+                        Employee signature required
+                      </div>
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+            
+            <!-- AMOUNT IN WORDS -->
+            <table>
+              <tr>
+                <td><b>AMOUNT IN WORDS :</b> ${numberToWords(Math.round(r.finalPayout))}</td>
+              </tr>
+            </table>
+          </table>
         </div>
-
-        <button onclick="window.print()">Print</button>
-
-      </body></html>
+      </body>
+      </html>
     `;
 
-    const win = window.open("", "_blank");
+    const win = window.open('', '_blank', 'width=1200,height=800');
+    win.document.title = `Invoice - ${r.invoiceNo}`;
     win.document.write(html);
     win.document.close();
   }
@@ -212,44 +681,262 @@ const Billing = () => {
         </div>
       )}
 
+      {result && (
+        <div className="text-center mb-4">
+          <h2 className="text-lg font-semibold text-gray-800">
+            Invoice Number: {result.invoiceNo}
+          </h2>
+        </div>
+      )}
+
       {/* Form */}
       {showForm && (
         <div className="mt-10 bg-white rounded-xl shadow-xl overflow-hidden">
           <div className="bg-gradient-to-r from-yellow-400 to-yellow-500 p-4">
-            <h3 className="text-xl font-bold text-white text-center">Gold Billing Form</h3>
+            <h3 className="text-xl font-bold text-white text-center">
+              Gold Billing Form
+            </h3>
           </div>
 
           <div className="p-6 space-y-6">
             {/* Gold Calculation Section */}
             <div className="bg-gray-50 p-4 rounded-lg">
-              <h4 className="text-lg font-semibold text-gray-800 mb-4">Gold Details</h4>
+              <h4 className="text-lg font-semibold text-gray-800 mb-4">
+                Gold Details
+              </h4>
+
+              {/* Billing Type Selection */}
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Billing Type
+                </label>
+                <select
+                  value={billingType}
+                  onChange={(e) => setBillingType(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-yellow-400 focus:border-yellow-400"
+                >
+                  <option value="Physical">Physical</option>
+                  <option value="Renewal">Renewal</option>
+                  <option value="TakeOver">Take Over</option>
+                </select>
+              </div>
+
+              {/* Conditional Fields for Renewal */}
+              {billingType === 'Renewal' && (
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4 p-4 bg-yellow-50 rounded-lg border border-yellow-200">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Bank Name *
+                    </label>
+                    <input
+                      type="text"
+                      value={bankName}
+                      onChange={(e) => {
+                        setBankName(e.target.value);
+                        if (errors.bankName) {
+                          setErrors({ ...errors, bankName: '' });
+                        }
+                      }}
+                      className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:border-transparent ${
+                        errors.bankName
+                          ? 'border-red-500 focus:ring-red-400'
+                          : 'border-gray-300 focus:ring-yellow-400'
+                      }`}
+                      placeholder="Enter Bank Name"
+                    />
+                    {errors.bankName && (
+                      <p className="text-red-500 text-xs mt-1">{errors.bankName}</p>
+                    )}
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Renewal Amount *
+                    </label>
+                    <input
+                      type="number"
+                      value={renewalAmount}
+                      onChange={(e) => {
+                        setRenewalAmount(e.target.value);
+                        if (errors.renewalAmount) {
+                          setErrors({ ...errors, renewalAmount: '' });
+                        }
+                      }}
+                      className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:border-transparent ${
+                        errors.renewalAmount
+                          ? 'border-red-500 focus:ring-red-400'
+                          : 'border-gray-300 focus:ring-yellow-400'
+                      }`}
+                      placeholder="Enter Amount"
+                      min="0"
+                    />
+                    {errors.renewalAmount && (
+                      <p className="text-red-500 text-xs mt-1">{errors.renewalAmount}</p>
+                    )}
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Commission %
+                    </label>
+                    <select
+                      value={commissionPercentage}
+                      onChange={(e) => setCommissionPercentage(Number(e.target.value))}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-yellow-400 focus:border-yellow-400"
+                    >
+                      <option value={2}>2%</option>
+                      <option value={3}>3%</option>
+                      <option value={4}>4%</option>
+                      <option value={5}>5%</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Commission Amount
+                    </label>
+                    <div className="w-full px-3 py-2 bg-gray-100 border border-gray-300 rounded-md text-gray-700 font-bold">
+                      {/* Show 0 or placeholder until calculated */}
+                      ₹ {commissionAmount ? commissionAmount.toLocaleString('en-IN') : '0'}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Conditional Fields for Take Over */}
+              {billingType === 'TakeOver' && (
+                <div className="mb-4 p-4 bg-blue-50 rounded-lg border border-blue-200">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Bank Name *
+                  </label>
+                  <input
+                    type="text"
+                    value={bankName}
+                    onChange={(e) => {
+                      setBankName(e.target.value);
+                      if (errors.bankName) {
+                        setErrors({ ...errors, bankName: '' });
+                      }
+                    }}
+                    className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:border-transparent ${
+                      errors.bankName
+                        ? 'border-red-500 focus:ring-red-400'
+                        : 'border-gray-300 focus:ring-blue-400'
+                    }`}
+                    placeholder="Enter Bank Name"
+                  />
+                  {errors.bankName && (
+                    <p className="text-red-500 text-xs mt-1">{errors.bankName}</p>
+                  )}
+                </div>
+              )}
+
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Gross Weight (g)</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Ornament Type *
+                  </label>
+                  <input
+                    type="text"
+                    value={ornamentType}
+                    onChange={(e) => {
+                      setOrnamentType(e.target.value);
+                      if (errors.ornamentType) {
+                        setErrors({ ...errors, ornamentType: '' });
+                      }
+                    }}
+                    className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:border-transparent ${
+                      errors.ornamentType
+                        ? 'border-red-500 focus:ring-red-400'
+                        : 'border-gray-300 focus:ring-yellow-400'
+                    }`}
+                    placeholder="e.g. Chain, Ring"
+                  />
+                  {errors.ornamentType && (
+                    <p className="text-red-500 text-xs mt-1">{errors.ornamentType}</p>
+                  )}
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Ornament Code *
+                  </label>
+                  <input
+                    type="text"
+                    value={ornamentCode}
+                    onChange={(e) => {
+                      setOrnamentCode(e.target.value);
+                      if (errors.ornamentCode) {
+                        setErrors({ ...errors, ornamentCode: '' });
+                      }
+                    }}
+                    className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:border-transparent ${
+                      errors.ornamentCode
+                        ? 'border-red-500 focus:ring-red-400'
+                        : 'border-gray-300 focus:ring-yellow-400'
+                    }`}
+                    placeholder="e.g. 1001"
+                  />
+                  {errors.ornamentCode && (
+                    <p className="text-red-500 text-xs mt-1">{errors.ornamentCode}</p>
+                  )}
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Gross Weight (g) *
+                  </label>
                   <input
                     type="number"
                     value={weight}
-                    onChange={(e) => setWeight(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-yellow-400 focus:border-yellow-400"
+                    onChange={(e) => {
+                      setWeight(e.target.value);
+                      if (errors.weight) {
+                        setErrors({ ...errors, weight: '' });
+                      }
+                    }}
+                    className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:border-transparent ${
+                      errors.weight
+                        ? 'border-red-500 focus:ring-red-400'
+                        : 'border-gray-300 focus:ring-yellow-400'
+                    }`}
                     placeholder="0.00"
                     step="0.001"
+                    min="0"
                   />
+                  {errors.weight && (
+                    <p className="text-red-500 text-xs mt-1">{errors.weight}</p>
+                  )}
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Stone Weight (g)</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Stone Weight (g)
+                  </label>
                   <input
                     type="number"
                     value={stoneWeight}
-                    onChange={(e) => setStoneWeight(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-yellow-400 focus:border-yellow-400"
+                    onChange={(e) => {
+                      setStoneWeight(e.target.value);
+                      if (errors.stoneWeight) {
+                        setErrors({ ...errors, stoneWeight: '' });
+                      }
+                    }}
+                    className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:border-transparent ${
+                      errors.stoneWeight
+                        ? 'border-red-500 focus:ring-red-400'
+                        : 'border-gray-300 focus:ring-yellow-400'
+                    }`}
                     placeholder="0.00"
                     step="0.001"
+                    min="0"
                   />
+                  {errors.stoneWeight && (
+                    <p className="text-red-500 text-xs mt-1">{errors.stoneWeight}</p>
+                  )}
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Purity</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Purity
+                  </label>
                   <select
                     value={purityIndex}
                     onChange={(e) => setPurityIndex(Number(e.target.value))}
@@ -275,100 +962,293 @@ const Billing = () => {
 
               {result && (
                 <div className="mt-4 p-4 bg-gradient-to-r from-green-50 to-green-100 border-2 border-green-300 rounded-lg text-center">
-                  <div className="text-sm text-gray-600 mb-2">Final Payout Amount</div>
-                  <div className="text-3xl font-bold text-green-600">₹{Number(result.finalPayout).toLocaleString("en-IN", { minimumFractionDigits: 2 }) || "0.00"}</div>
+                  <div className="text-sm text-gray-600 mb-2">
+                    Final Payout Amount
+                  </div>
+                  <div className="text-3xl font-bold text-green-600">
+                    ₹
+                    {Number(result.finalPayout).toLocaleString('en-IN', {
+                      minimumFractionDigits: 2,
+                    }) || '0.00'}
+                  </div>
                 </div>
               )}
             </div>
 
             {/* Customer Details Section */}
             <div className="bg-blue-50 p-4 rounded-lg">
-              <h4 className="text-lg font-semibold text-gray-800 mb-4">Customer Information</h4>
+              <h4 className="text-lg font-semibold text-gray-800 mb-4">
+                Customer Information
+              </h4>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Customer Name</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Customer Name *
+                  </label>
                   <input
                     type="text"
                     placeholder="Enter full name"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-blue-400"
+                    className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:border-transparent ${
+                      errors.name
+                        ? 'border-red-500 focus:ring-red-400'
+                        : 'border-gray-300 focus:ring-blue-400'
+                    }`}
                     value={customer.name}
-                    onChange={(e) => setCustomer({ ...customer, name: e.target.value })}
+                    onChange={(e) => {
+                      setCustomer({ ...customer, name: e.target.value });
+                      if (errors.name) {
+                        setErrors({ ...errors, name: '' });
+                      }
+                    }}
                   />
+                  {errors.name && (
+                    <p className="text-red-500 text-xs mt-1">{errors.name}</p>
+                  )}
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Mobile Number</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Mobile Number *
+                  </label>
                   <input
                     type="tel"
-                    placeholder="Enter mobile number"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-blue-400"
+                    placeholder="Enter 10-digit mobile number"
+                    maxLength="10"
+                    className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:border-transparent ${
+                      errors.mobile
+                        ? 'border-red-500 focus:ring-red-400'
+                        : 'border-gray-300 focus:ring-blue-400'
+                    }`}
                     value={customer.mobile}
-                    onChange={(e) => setCustomer({ ...customer, mobile: e.target.value })}
+                    onChange={(e) => {
+                      const value = e.target.value.replace(/\D/g, ''); // Only allow digits
+                      setCustomer({ ...customer, mobile: value });
+                      if (errors.mobile) {
+                        setErrors({ ...errors, mobile: '' });
+                      }
+                    }}
                   />
+                  {errors.mobile && (
+                    <p className="text-red-500 text-xs mt-1">{errors.mobile}</p>
+                  )}
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Aadhar Number</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Aadhar Number *
+                  </label>
                   <input
                     type="text"
-                    placeholder="Enter 12-digit Aadhar"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-blue-400"
+                    placeholder="Enter 12-digit Aadhar number"
+                    maxLength="12"
+                    className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:border-transparent ${
+                      errors.aadhar
+                        ? 'border-red-500 focus:ring-red-400'
+                        : 'border-gray-300 focus:ring-blue-400'
+                    }`}
                     value={customer.aadhar}
-                    onChange={(e) => setCustomer({ ...customer, aadhar: e.target.value })}
+                    onChange={(e) => {
+                      const value = e.target.value.replace(/\D/g, ''); // Only allow digits
+                      setCustomer({ ...customer, aadhar: value });
+                      if (errors.aadhar) {
+                        setErrors({ ...errors, aadhar: '' });
+                      }
+                    }}
                   />
+                  {errors.aadhar && (
+                    <p className="text-red-500 text-xs mt-1">{errors.aadhar}</p>
+                  )}
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">PAN Number</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    PAN Number *
+                  </label>
                   <input
                     type="text"
-                    placeholder="Enter PAN number"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-blue-400"
+                    placeholder="Enter PAN number (e.g., ABCDE1234F)"
+                    maxLength="10"
+                    className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:border-transparent uppercase ${
+                      errors.pan
+                        ? 'border-red-500 focus:ring-red-400'
+                        : 'border-gray-300 focus:ring-blue-400'
+                    }`}
                     value={customer.pan}
-                    onChange={(e) => setCustomer({ ...customer, pan: e.target.value })}
+                    onChange={(e) => {
+                      const value = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''); // Only allow alphanumeric, convert to uppercase
+                      setCustomer({ ...customer, pan: value });
+                      if (errors.pan) {
+                        setErrors({ ...errors, pan: '' });
+                      }
+                    }}
                   />
+                  {errors.pan && (
+                    <p className="text-red-500 text-xs mt-1">{errors.pan}</p>
+                  )}
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Gender</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Gender *
+                  </label>
                   <select
                     value={customer.gender}
-                    onChange={(e) => setCustomer({ ...customer, gender: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-blue-400"
+                    onChange={(e) => {
+                      setCustomer({ ...customer, gender: e.target.value });
+                      if (errors.gender) {
+                        setErrors({ ...errors, gender: '' });
+                      }
+                    }}
+                    className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:border-transparent ${
+                      errors.gender
+                        ? 'border-red-500 focus:ring-red-400'
+                        : 'border-gray-300 focus:ring-blue-400'
+                    }`}
                   >
                     <option value="">Select Gender</option>
                     <option value="Male">Male</option>
                     <option value="Female">Female</option>
                   </select>
+                  {errors.gender && (
+                    <p className="text-red-500 text-xs mt-1">{errors.gender}</p>
+                  )}
                 </div>
 
                 <div className="md:col-span-2">
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Address</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Address *
+                  </label>
                   <textarea
-                    placeholder="Enter complete address"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-blue-400"
+                    placeholder="Enter complete address (minimum 10 characters)"
+                    className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:border-transparent ${
+                      errors.address
+                        ? 'border-red-500 focus:ring-red-400'
+                        : 'border-gray-300 focus:ring-blue-400'
+                    }`}
                     rows="3"
                     value={customer.address}
-                    onChange={(e) => setCustomer({ ...customer, address: e.target.value })}
+                    onChange={(e) => {
+                      setCustomer({ ...customer, address: e.target.value });
+                      if (errors.address) {
+                        setErrors({ ...errors, address: '' });
+                      }
+                    }}
                   ></textarea>
+                  {errors.address && (
+                    <p className="text-red-500 text-xs mt-1">{errors.address}</p>
+                  )}
+                </div>
+
+                {/* Customer Photo Upload */}
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Customer Photo
+                  </label>
+                  <div className="space-y-3">
+                    <input
+                      type="file"
+                      accept="image/*"
+                      capture="user"
+                      onChange={handlePhotoCapture}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-blue-400 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+                    />
+                    {photoPreview && (
+                      <div className="flex items-center space-x-4 p-4 bg-gray-50 rounded-lg">
+                        <img
+                          src={photoPreview}
+                          alt="Customer"
+                          className="w-20 h-20 object-cover rounded-lg border-2 border-gray-300"
+                        />
+                        <div className="flex-1">
+                          <p className="text-sm text-gray-600">Photo uploaded successfully</p>
+                          <button
+                            onClick={removePhoto}
+                            className="text-red-500 hover:text-red-700 text-sm font-medium mt-1"
+                          >
+                            Remove Photo
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                    <p className="text-xs text-gray-500">
+                      Upload a clear photo of the customer (max 5MB, JPG/PNG/WebP)
+                    </p>
+                  </div>
                 </div>
               </div>
             </div>
 
             {/* Action Buttons */}
-            <div className="flex space-x-4">
-              <button
-                onClick={printInvoice}
-                className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-lg transition duration-300 transform hover:scale-[1.02] shadow-lg"
-              >
-                🖨️ Print Invoice
-              </button>
-              <button
-                onClick={() => setShowForm(false)}
-                className="flex-1 bg-gray-500 hover:bg-gray-600 text-white font-bold py-3 px-6 rounded-lg transition duration-300"
-              >
-                Cancel
-              </button>
+            <div className="space-y-3">
+              {/* Save Billing Button */}
+              {!isBillingSaved && (
+                <div className="space-y-2">
+                  {hasFormChanged() && result && (
+                    <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-2 text-center">
+                      <p className="text-yellow-800 text-sm font-medium">⚠️ You have unsaved changes</p>
+                    </div>
+                  )}
+                  <button
+                    onClick={saveBilling}
+                    disabled={isSubmitting || !result}
+                    className={`w-full font-bold py-3 px-6 rounded-lg transition duration-300 transform shadow-lg ${
+                      isSubmitting || !result
+                        ? 'bg-green-400 cursor-not-allowed text-white'
+                        : hasFormChanged() && result
+                        ? 'bg-green-600 hover:bg-green-700 text-white hover:scale-[1.02] animate-pulse'
+                        : 'bg-green-500 text-white'
+                    }`}
+                  >
+                    {isSubmitting ? (
+                      <span className="flex items-center justify-center">
+                        <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                        Saving...
+                      </span>
+                    ) : hasFormChanged() && result ? (
+                      '💾 Save Billing'
+                    ) : (
+                      '✅ Billing Up to Date'
+                    )}
+                  </button>
+                </div>
+              )}
+
+              {/* Status Message */}
+              {isBillingSaved && (
+                <div className="bg-green-50 border border-green-200 rounded-lg p-3 text-center">
+                  <p className="text-green-800 font-semibold">✅ Billing Saved Successfully!</p>
+                  <p className="text-green-600 text-sm">You can now print the invoice.</p>
+                </div>
+              )}
+
+              {/* Print and Cancel Buttons */}
+              <div className="flex space-x-4">
+                <button
+                  onClick={printInvoice}
+                  disabled={isSubmitting || !isBillingSaved}
+                  className={`flex-1 font-bold py-3 px-6 rounded-lg transition duration-300 transform shadow-lg ${
+                    isSubmitting || !isBillingSaved
+                      ? 'bg-blue-400 cursor-not-allowed text-white'
+                      : 'bg-blue-600 hover:bg-blue-700 text-white hover:scale-[1.02]'
+                  }`}
+                >
+                  🖨️ Print Invoice
+                </button>
+                <button
+                  onClick={() => setShowForm(false)}
+                  disabled={isSubmitting}
+                  className={`flex-1 font-bold py-3 px-6 rounded-lg transition duration-300 ${
+                    isSubmitting
+                      ? 'bg-gray-400 cursor-not-allowed text-gray-200'
+                      : 'bg-gray-500 hover:bg-gray-600 text-white'
+                  }`}
+                >
+                  Cancel
+                </button>
+              </div>
             </div>
           </div>
         </div>

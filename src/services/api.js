@@ -121,6 +121,12 @@ export const billingAPI = {
     }),
 
   getDailyTransactions: () => apiRequest('/billing/daily-transactions'),
+
+  uploadBillingImage: (id, imageData) =>
+    apiRequest(`/billing/${id}/upload-image`, {
+      method: 'POST',
+      body: JSON.stringify({ imageData }),
+    }),
 };
 
 export const renewalAPI = {

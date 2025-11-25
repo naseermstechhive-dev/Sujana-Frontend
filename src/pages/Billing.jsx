@@ -46,6 +46,12 @@ const Billing = () => {
   // useEffect(() => { ... }, [commissionPercentage]);
 
   const [result, setResult] = useState(null);
+  const [errors, setErrors] = useState({});
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isBillingSaved, setIsBillingSaved] = useState(false);
+  const [initialFormData, setInitialFormData] = useState(null);
+  const [customerPhoto, setCustomerPhoto] = useState(null);
+  const [photoPreview, setPhotoPreview] = useState(null);
 
   // load company data
   useEffect(() => {
@@ -84,7 +90,7 @@ const Billing = () => {
     }
 
     let calculatedCommission = 0;
-    if (billingType === 'Renewal') {
+    if (billingType === 'Release') {
       try {
         const res = await billingAPI.calculateRenewal(commissionPercentage, renewalAmount);
         if (res.success) {
@@ -125,14 +131,151 @@ const Billing = () => {
     });
   }
 
-  // Removed generateInvoiceNo using localStorage
-  // function generateInvoiceNo() { ... }
+  // Photo handling functions
+  const handlePhotoCapture = (event) => {
+    const file = event.target.files[0];
+    if (file) {
+      // Validate file type
+      if (!file.type.startsWith('image/')) {
+        alert('Please select a valid image file');
+        return;
+      }
 
-  async function printInvoice() {
-    if (!result) return alert('Please calculate the amount first!');
+      // Validate file size (max 5MB)
+      if (file.size > 5 * 1024 * 1024) {
+        alert('Image size should be less than 5MB');
+        return;
+      }
 
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        setCustomerPhoto(file);
+        setPhotoPreview(e.target.result);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const removePhoto = () => {
+    setCustomerPhoto(null);
+    setPhotoPreview(null);
+  };
+
+  // Initialize form data tracking
+  useEffect(() => {
+    setInitialFormData({
+      customer,
+      billingType,
+      bankName,
+      renewalAmount,
+      commissionPercentage,
+      weight,
+      stoneWeight,
+      purityIndex,
+      ornamentType,
+      ornamentCode,
+      customerPhoto: photoPreview,
+    });
+  }, []);
+
+  // Check if form has changes
+  const hasFormChanged = () => {
+    if (!initialFormData) return false;
+
+    const currentData = {
+      customer,
+      billingType,
+      bankName,
+      renewalAmount,
+      commissionPercentage,
+      weight,
+      stoneWeight,
+      purityIndex,
+      ornamentType,
+      ornamentCode,
+      customerPhoto: photoPreview,
+    };
+
+    const hasChanged = JSON.stringify(currentData) !== JSON.stringify(initialFormData);
+
+    // Reset billing saved state if form has changed
+    if (hasChanged && isBillingSaved) {
+      setIsBillingSaved(false);
+    }
+
+    return hasChanged;
+  };
+
+  // Check for duplicates in database
+  const checkForDuplicates = async () => {
     try {
-      // Save billing to database
+      // Check if invoice number already exists (if result exists)
+      if (result?.invoiceNo) {
+        const existingBillings = await billingAPI.getAllBillings();
+        if (existingBillings.success) {
+          const duplicate = existingBillings.data.find(billing =>
+            billing.invoiceNo === result.invoiceNo
+          );
+          if (duplicate) {
+            return { hasDuplicate: true, message: 'Invoice number already exists in database' };
+          }
+        }
+      }
+
+      // Check for duplicate customer + gold details (same customer, same weight, same day)
+      const today = new Date().toDateString();
+      const existingBillings = await billingAPI.getAllBillings();
+      if (existingBillings.success) {
+        const duplicate = existingBillings.data.find(billing => {
+          const billingDate = new Date(billing.createdAt || billing.date).toDateString();
+          return billingDate === today &&
+                 billing.customer?.name === customer.name &&
+                 billing.customer?.mobile === customer.mobile &&
+                 billing.goldDetails?.weight === parseFloat(weight);
+        });
+        if (duplicate) {
+          return {
+            hasDuplicate: true,
+            message: 'Similar billing already exists for this customer today with same weight'
+          };
+        }
+      }
+
+      return { hasDuplicate: false };
+    } catch (error) {
+      console.error('Error checking for duplicates:', error);
+      return { hasDuplicate: false }; // Allow save if check fails
+    }
+  };
+
+  // Save billing data function
+  const saveBilling = async () => {
+    if (!result) {
+      alert('Please calculate the amount first!');
+      return;
+    }
+
+    // Check if form has changes
+    if (!hasFormChanged()) {
+      alert('No changes detected. Please modify the form before saving.');
+      return;
+    }
+
+    // Validate form
+    if (!validateForm()) {
+      alert('Please fix the validation errors before saving.');
+      return;
+    }
+
+    // Check for duplicates
+    const duplicateCheck = await checkForDuplicates();
+    if (duplicateCheck.hasDuplicate) {
+      alert(`Cannot save: ${duplicateCheck.message}`);
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
       const billingData = {
         customer,
         goldDetails: {
@@ -151,7 +294,6 @@ const Billing = () => {
           finalPayout: result.finalPayout,
         },
         invoiceNo: result.invoiceNo,
-        // New Fields
         billingType,
         bankName: billingType !== 'Physical' ? bankName : undefined,
         commissionPercentage: billingType === 'Renewal' ? commissionPercentage : undefined,
@@ -160,8 +302,127 @@ const Billing = () => {
 
       await billingAPI.createBilling(billingData);
       alert('Billing saved successfully!');
+      setIsBillingSaved(true);
+
+      // Update initial form data to current state
+      setInitialFormData({
+        customer,
+        billingType,
+        bankName,
+        renewalAmount,
+        commissionPercentage,
+        weight,
+        stoneWeight,
+        purityIndex,
+        ornamentType,
+        ornamentCode,
+        customerPhoto: photoPreview,
+      });
+
     } catch (error) {
       alert('Failed to save billing: ' + error.message);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  // Validation functions
+  const validateForm = () => {
+    const newErrors = {};
+
+    // Customer Name validation
+    if (!customer.name.trim()) {
+      newErrors.name = 'Customer name is required';
+    } else if (customer.name.trim().length < 2) {
+      newErrors.name = 'Customer name must be at least 2 characters';
+    }
+
+    // Mobile validation
+    if (!customer.mobile.trim()) {
+      newErrors.mobile = 'Mobile number is required';
+    } else if (!/^[6-9]\d{9}$/.test(customer.mobile.trim())) {
+      newErrors.mobile = 'Mobile number must be 10 digits starting with 6-9';
+    }
+
+    // Aadhar validation
+    if (!customer.aadhar.trim()) {
+      newErrors.aadhar = 'Aadhar number is required';
+    } else if (!/^\d{12}$/.test(customer.aadhar.trim())) {
+      newErrors.aadhar = 'Aadhar number must be exactly 12 digits';
+    }
+
+    // PAN validation
+    if (!customer.pan.trim()) {
+      newErrors.pan = 'PAN number is required';
+    } else if (!/^[A-Z]{5}[0-9]{4}[A-Z]{1}$/.test(customer.pan.trim().toUpperCase())) {
+      newErrors.pan = 'PAN number must be 10 characters: 5 letters, 4 numbers, 1 letter (e.g., ABCDE1234F)';
+    }
+
+    // Gender validation
+    if (!customer.gender) {
+      newErrors.gender = 'Gender is required';
+    }
+
+    // Address validation
+    if (!customer.address.trim()) {
+      newErrors.address = 'Address is required';
+    } else if (customer.address.trim().length < 10) {
+      newErrors.address = 'Address must be at least 10 characters';
+    }
+
+    // Gold details validation
+    if (!weight || parseFloat(weight) <= 0) {
+      newErrors.weight = 'Gross weight must be greater than 0';
+    }
+
+    if (parseFloat(stoneWeight || 0) >= parseFloat(weight || 0)) {
+      newErrors.stoneWeight = 'Stone weight cannot be greater than or equal to gross weight';
+    }
+
+    if (!ornamentType.trim()) {
+      newErrors.ornamentType = 'Ornament type is required';
+    }
+
+    if (!ornamentCode.trim()) {
+      newErrors.ornamentCode = 'Ornament code is required';
+    }
+
+    // Billing type specific validations
+    if (billingType === 'Renewal' || billingType === 'TakeOver') {
+      if (!bankName.trim()) {
+        newErrors.bankName = 'Bank name is required for renewal/takeover';
+      }
+    }
+
+    if (billingType === 'Renewal') {
+      if (!renewalAmount || parseFloat(renewalAmount) <= 0) {
+        newErrors.renewalAmount = 'Renewal amount must be greater than 0';
+      }
+    }
+
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
+
+  const clearErrors = () => {
+    setErrors({});
+  };
+
+  // Removed generateInvoiceNo using localStorage
+  // function generateInvoiceNo() { ... }
+
+  async function printInvoice() {
+    if (!result) return alert('Please calculate the amount first!');
+
+    // Check if billing is saved before printing
+    if (!isBillingSaved) {
+      alert('Please save the billing data first before printing the invoice.');
+      return;
+    }
+
+    // Validate form before proceeding
+    if (!validateForm()) {
+      alert('Please fix the validation errors before printing.');
       return;
     }
 
@@ -178,15 +439,39 @@ const Billing = () => {
         <title>${r.invoiceNo}</title>
         <style>
           body { font-family: Arial, sans-serif; padding: 0; margin: 0; background: white; }
-          .invoice-container { width: 800px; margin: auto; border: 1px solid black; padding: 10px; }
+          .invoice-container { width: 1000px; min-height: 1425px; margin: auto; border: 1px solid black; padding: 10px; }
           table { width: 100%; border-collapse: collapse; font-size: 14px; }
           th, td { border: 1px solid black; padding: 6px; text-align: left; }
           .center { text-align: center; }
           .bold { font-weight: bold; }
           .header-table td { border: none; }
           .no-border td { border: none !important; }
-          .logo img { width: 120px; }
-          @media print { .no-print { display: none; } }
+          .logo { text-align: center; margin-bottom: 10px; }
+          .logo img { width: 80px; height: 60px; object-fit: contain; }
+          .terms-signatures { margin-top: 15px; }
+          @page {
+            margin: 0.5cm;
+            size: A4;
+          }
+          @media print {
+            .no-print { display: none; }
+            body {
+              margin: 0;
+              padding: 0;
+              -webkit-print-color-adjust: exact;
+              color-adjust: exact;
+            }
+            .invoice-container {
+              width: 100% !important;
+              max-width: 18cm !important;
+              height: auto !important;
+              min-height: auto !important;
+              margin: 0 !important;
+              border: 1px solid black !important;
+              padding: 8px !important;
+              box-sizing: border-box !important;
+            }
+          }
         </style>
       </head>
       <body>
@@ -204,12 +489,14 @@ const Billing = () => {
                 <div class="logo">
                   <img src="/images/${comp.logoFile}" alt="${comp.companyName}" />
                 </div>
-                <div class="bold" style="font-size:28px; margin-top:-10px;">
+                <div class="bold" style="font-size:24px; margin-top:5px;">
                   ${comp.companyName}
                 </div>
-                ${comp.addressLine1} <br>
-                ${comp.addressLine2} <br>
-                <b>Phone:</b> ${comp.phone}
+                <div style="font-size:12px; margin-top:5px; line-height:1.4;">
+                  ${comp.addressLine1} <br>
+                  ${comp.addressLine2} <br>
+                  <b>Phone:</b> ${comp.phone}
+                </div>
               </td>
             </tr>
           </table>
@@ -232,7 +519,9 @@ const Billing = () => {
               <!-- RIGHT SIDE PHOTO + ID PROOF + ADDRESS PROOF -->
               <td rowspan="4" style="width:180px; padding:0; margin:0; border:1px solid black; vertical-align:top;">
                 <!-- PHOTO BOX -->
-                <div style="width:100%; height:130px; border-bottom:1px solid black;"></div>
+                <div style="width:100%; height:130px; border-bottom:1px solid black; display:flex; align-items:center; justify-content:center;">
+                  ${photoPreview ? `<img src="${photoPreview}" style="width:100%; height:100%; object-fit:cover;" alt="Customer Photo" />` : '<div style="text-align:center; color:#999;">Photo</div>'}
+                </div>
                 <!-- ID PROOF ROW -->
                 <div style="border-bottom:1px solid black; padding:6px; font-size:13px;">
                   <b>ID PROOF</b><br>
@@ -242,9 +531,9 @@ const Billing = () => {
                 </div>
                 <!-- ADDRESS PROOF ROW -->
                 <div style="padding:6px; font-size:13px;">
-                  <b>AADHAR NO</b><br>
+                  <b>PAN NO</b><br>
                   <div style="margin-top:4px; width:100%; border:1px solid black; height:28px; text-align:center; padding-top:4px;">
-                    ${c.aadhar || '____________'}
+                    ${c.pan || '____________'}
                   </div>
                 </div>
               </td>
@@ -307,7 +596,7 @@ const Billing = () => {
           </table>
 
           <!-- TERMS + AMOUNTS SIDE BY SIDE -->
-          <table>
+          <table class="terms-signatures">
             <tr>
               <!-- LEFT: TERMS -->
               <td style="width:65%; vertical-align:top; padding:10px;">
@@ -335,19 +624,23 @@ const Billing = () => {
                 <!-- SIGNATURE SECTION -->
                 <table style="width:100%; border-collapse: collapse; margin-top:10px;">
                   <tr>
-                    <td style="width:50%; height:90px; border:1px solid black; text-align:center; font-weight:bold; vertical-align:bottom; padding-bottom:10px;">
-                      CUSTOMER THUMB
-                    </td>
-                    <td style="width:50%; height:90px; border:1px solid black; text-align:center; font-weight:bold; vertical-align:bottom; padding-bottom:10px;">
-                      CUSTOMER SIGNATURE
+                    <td style="width:100%; height:120px; border:1px solid black; text-align:center; font-weight:bold; vertical-align:bottom; padding:15px 10px 10px 10px; position:relative;">
+                      <div style="position:absolute; bottom:8px; left:50%; transform:translateX(-50%); font-size:13px;">
+                        CUSTOMER SIGNATURE
+                      </div>
+                      <div style="height: 70%; display:flex; align-items:center; justify-content:center; font-size:11px; color:#666; margin-bottom:20px;">
+                        Please sign here
+                      </div>
                     </td>
                   </tr>
                   <tr>
-                    <td style="width:50%; height:90px; border:1px solid black; text-align:center; font-weight:bold; vertical-align:bottom; padding-bottom:10px;">
-                      EmployeeThumbImpression
-                    </td>
-                    <td style="width:50%; height:90px; border:1px solid black; text-align:center; font-weight:bold; vertical-align:bottom; padding-bottom:10px;">
-                      Employee Signature
+                    <td style="width:100%; height:120px; border:1px solid black; text-align:center; font-weight:bold; vertical-align:bottom; padding:15px 10px 10px 10px; position:relative;">
+                      <div style="position:absolute; bottom:8px; left:50%; transform:translateX(-50%); font-size:13px;">
+                        EMPLOYEE SIGNATURE
+                      </div>
+                      <div style="height: 70%; display:flex; align-items:center; justify-content:center; font-size:11px; color:#666; margin-bottom:20px;">
+                        Employee signature required
+                      </div>
                     </td>
                   </tr>
                 </table>
@@ -366,7 +659,8 @@ const Billing = () => {
       </html>
     `;
 
-    const win = window.open('', '_blank');
+    const win = window.open('', '_blank', 'width=1200,height=800');
+    win.document.title = `Invoice - ${r.invoiceNo}`;
     win.document.write(html);
     win.document.close();
   }
@@ -432,27 +726,52 @@ const Billing = () => {
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4 p-4 bg-yellow-50 rounded-lg border border-yellow-200">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Bank Name
+                      Bank Name *
                     </label>
                     <input
                       type="text"
                       value={bankName}
-                      onChange={(e) => setBankName(e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-yellow-400 focus:border-yellow-400"
+                      onChange={(e) => {
+                        setBankName(e.target.value);
+                        if (errors.bankName) {
+                          setErrors({ ...errors, bankName: '' });
+                        }
+                      }}
+                      className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:border-transparent ${
+                        errors.bankName
+                          ? 'border-red-500 focus:ring-red-400'
+                          : 'border-gray-300 focus:ring-yellow-400'
+                      }`}
                       placeholder="Enter Bank Name"
                     />
+                    {errors.bankName && (
+                      <p className="text-red-500 text-xs mt-1">{errors.bankName}</p>
+                    )}
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Renewal Amount
+                      Renewal Amount *
                     </label>
                     <input
                       type="number"
                       value={renewalAmount}
-                      onChange={(e) => setRenewalAmount(e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-yellow-400 focus:border-yellow-400"
+                      onChange={(e) => {
+                        setRenewalAmount(e.target.value);
+                        if (errors.renewalAmount) {
+                          setErrors({ ...errors, renewalAmount: '' });
+                        }
+                      }}
+                      className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:border-transparent ${
+                        errors.renewalAmount
+                          ? 'border-red-500 focus:ring-red-400'
+                          : 'border-gray-300 focus:ring-yellow-400'
+                      }`}
                       placeholder="Enter Amount"
+                      min="0"
                     />
+                    {errors.renewalAmount && (
+                      <p className="text-red-500 text-xs mt-1">{errors.renewalAmount}</p>
+                    )}
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -485,57 +804,106 @@ const Billing = () => {
               {billingType === 'TakeOver' && (
                 <div className="mb-4 p-4 bg-blue-50 rounded-lg border border-blue-200">
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Bank Name
+                    Bank Name *
                   </label>
                   <input
                     type="text"
                     value={bankName}
-                    onChange={(e) => setBankName(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-blue-400"
+                    onChange={(e) => {
+                      setBankName(e.target.value);
+                      if (errors.bankName) {
+                        setErrors({ ...errors, bankName: '' });
+                      }
+                    }}
+                    className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:border-transparent ${
+                      errors.bankName
+                        ? 'border-red-500 focus:ring-red-400'
+                        : 'border-gray-300 focus:ring-blue-400'
+                    }`}
                     placeholder="Enter Bank Name"
                   />
+                  {errors.bankName && (
+                    <p className="text-red-500 text-xs mt-1">{errors.bankName}</p>
+                  )}
                 </div>
               )}
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Ornament Type
+                    Ornament Type *
                   </label>
                   <input
                     type="text"
                     value={ornamentType}
-                    onChange={(e) => setOrnamentType(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-yellow-400 focus:border-yellow-400"
+                    onChange={(e) => {
+                      setOrnamentType(e.target.value);
+                      if (errors.ornamentType) {
+                        setErrors({ ...errors, ornamentType: '' });
+                      }
+                    }}
+                    className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:border-transparent ${
+                      errors.ornamentType
+                        ? 'border-red-500 focus:ring-red-400'
+                        : 'border-gray-300 focus:ring-yellow-400'
+                    }`}
                     placeholder="e.g. Chain, Ring"
                   />
+                  {errors.ornamentType && (
+                    <p className="text-red-500 text-xs mt-1">{errors.ornamentType}</p>
+                  )}
                 </div>
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Ornament Code
+                    Ornament Code *
                   </label>
                   <input
                     type="text"
                     value={ornamentCode}
-                    onChange={(e) => setOrnamentCode(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-yellow-400 focus:border-yellow-400"
+                    onChange={(e) => {
+                      setOrnamentCode(e.target.value);
+                      if (errors.ornamentCode) {
+                        setErrors({ ...errors, ornamentCode: '' });
+                      }
+                    }}
+                    className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:border-transparent ${
+                      errors.ornamentCode
+                        ? 'border-red-500 focus:ring-red-400'
+                        : 'border-gray-300 focus:ring-yellow-400'
+                    }`}
                     placeholder="e.g. 1001"
                   />
+                  {errors.ornamentCode && (
+                    <p className="text-red-500 text-xs mt-1">{errors.ornamentCode}</p>
+                  )}
                 </div>
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Gross Weight (g)
+                    Gross Weight (g) *
                   </label>
                   <input
                     type="number"
                     value={weight}
-                    onChange={(e) => setWeight(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-yellow-400 focus:border-yellow-400"
+                    onChange={(e) => {
+                      setWeight(e.target.value);
+                      if (errors.weight) {
+                        setErrors({ ...errors, weight: '' });
+                      }
+                    }}
+                    className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:border-transparent ${
+                      errors.weight
+                        ? 'border-red-500 focus:ring-red-400'
+                        : 'border-gray-300 focus:ring-yellow-400'
+                    }`}
                     placeholder="0.00"
                     step="0.001"
+                    min="0"
                   />
+                  {errors.weight && (
+                    <p className="text-red-500 text-xs mt-1">{errors.weight}</p>
+                  )}
                 </div>
 
                 <div>
@@ -545,11 +913,24 @@ const Billing = () => {
                   <input
                     type="number"
                     value={stoneWeight}
-                    onChange={(e) => setStoneWeight(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-yellow-400 focus:border-yellow-400"
+                    onChange={(e) => {
+                      setStoneWeight(e.target.value);
+                      if (errors.stoneWeight) {
+                        setErrors({ ...errors, stoneWeight: '' });
+                      }
+                    }}
+                    className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:border-transparent ${
+                      errors.stoneWeight
+                        ? 'border-red-500 focus:ring-red-400'
+                        : 'border-gray-300 focus:ring-yellow-400'
+                    }`}
                     placeholder="0.00"
                     step="0.001"
+                    min="0"
                   />
+                  {errors.stoneWeight && (
+                    <p className="text-red-500 text-xs mt-1">{errors.stoneWeight}</p>
+                  )}
                 </div>
 
                 <div>
@@ -602,112 +983,272 @@ const Billing = () => {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Customer Name
+                    Customer Name *
                   </label>
                   <input
                     type="text"
                     placeholder="Enter full name"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-blue-400"
+                    className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:border-transparent ${
+                      errors.name
+                        ? 'border-red-500 focus:ring-red-400'
+                        : 'border-gray-300 focus:ring-blue-400'
+                    }`}
                     value={customer.name}
-                    onChange={(e) =>
-                      setCustomer({ ...customer, name: e.target.value })
-                    }
+                    onChange={(e) => {
+                      setCustomer({ ...customer, name: e.target.value });
+                      if (errors.name) {
+                        setErrors({ ...errors, name: '' });
+                      }
+                    }}
                   />
+                  {errors.name && (
+                    <p className="text-red-500 text-xs mt-1">{errors.name}</p>
+                  )}
                 </div>
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Mobile Number
+                    Mobile Number *
                   </label>
                   <input
                     type="tel"
-                    placeholder="Enter mobile number"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-blue-400"
+                    placeholder="Enter 10-digit mobile number"
+                    maxLength="10"
+                    className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:border-transparent ${
+                      errors.mobile
+                        ? 'border-red-500 focus:ring-red-400'
+                        : 'border-gray-300 focus:ring-blue-400'
+                    }`}
                     value={customer.mobile}
-                    onChange={(e) =>
-                      setCustomer({ ...customer, mobile: e.target.value })
-                    }
+                    onChange={(e) => {
+                      const value = e.target.value.replace(/\D/g, ''); // Only allow digits
+                      setCustomer({ ...customer, mobile: value });
+                      if (errors.mobile) {
+                        setErrors({ ...errors, mobile: '' });
+                      }
+                    }}
                   />
+                  {errors.mobile && (
+                    <p className="text-red-500 text-xs mt-1">{errors.mobile}</p>
+                  )}
                 </div>
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Aadhar Number
+                    Aadhar Number *
                   </label>
                   <input
                     type="text"
-                    placeholder="Enter 12-digit Aadhar"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-blue-400"
+                    placeholder="Enter 12-digit Aadhar number"
+                    maxLength="12"
+                    className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:border-transparent ${
+                      errors.aadhar
+                        ? 'border-red-500 focus:ring-red-400'
+                        : 'border-gray-300 focus:ring-blue-400'
+                    }`}
                     value={customer.aadhar}
-                    onChange={(e) =>
-                      setCustomer({ ...customer, aadhar: e.target.value })
-                    }
+                    onChange={(e) => {
+                      const value = e.target.value.replace(/\D/g, ''); // Only allow digits
+                      setCustomer({ ...customer, aadhar: value });
+                      if (errors.aadhar) {
+                        setErrors({ ...errors, aadhar: '' });
+                      }
+                    }}
                   />
+                  {errors.aadhar && (
+                    <p className="text-red-500 text-xs mt-1">{errors.aadhar}</p>
+                  )}
                 </div>
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    PAN Number
+                    PAN Number *
                   </label>
                   <input
                     type="text"
-                    placeholder="Enter PAN number"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-blue-400"
+                    placeholder="Enter PAN number (e.g., ABCDE1234F)"
+                    maxLength="10"
+                    className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:border-transparent uppercase ${
+                      errors.pan
+                        ? 'border-red-500 focus:ring-red-400'
+                        : 'border-gray-300 focus:ring-blue-400'
+                    }`}
                     value={customer.pan}
-                    onChange={(e) =>
-                      setCustomer({ ...customer, pan: e.target.value })
-                    }
+                    onChange={(e) => {
+                      const value = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''); // Only allow alphanumeric, convert to uppercase
+                      setCustomer({ ...customer, pan: value });
+                      if (errors.pan) {
+                        setErrors({ ...errors, pan: '' });
+                      }
+                    }}
                   />
+                  {errors.pan && (
+                    <p className="text-red-500 text-xs mt-1">{errors.pan}</p>
+                  )}
                 </div>
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Gender
+                    Gender *
                   </label>
                   <select
                     value={customer.gender}
-                    onChange={(e) =>
-                      setCustomer({ ...customer, gender: e.target.value })
-                    }
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-blue-400"
+                    onChange={(e) => {
+                      setCustomer({ ...customer, gender: e.target.value });
+                      if (errors.gender) {
+                        setErrors({ ...errors, gender: '' });
+                      }
+                    }}
+                    className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:border-transparent ${
+                      errors.gender
+                        ? 'border-red-500 focus:ring-red-400'
+                        : 'border-gray-300 focus:ring-blue-400'
+                    }`}
                   >
                     <option value="">Select Gender</option>
                     <option value="Male">Male</option>
                     <option value="Female">Female</option>
                   </select>
+                  {errors.gender && (
+                    <p className="text-red-500 text-xs mt-1">{errors.gender}</p>
+                  )}
                 </div>
 
                 <div className="md:col-span-2">
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Address
+                    Address *
                   </label>
                   <textarea
-                    placeholder="Enter complete address"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-blue-400"
+                    placeholder="Enter complete address (minimum 10 characters)"
+                    className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:border-transparent ${
+                      errors.address
+                        ? 'border-red-500 focus:ring-red-400'
+                        : 'border-gray-300 focus:ring-blue-400'
+                    }`}
                     rows="3"
                     value={customer.address}
-                    onChange={(e) =>
-                      setCustomer({ ...customer, address: e.target.value })
-                    }
+                    onChange={(e) => {
+                      setCustomer({ ...customer, address: e.target.value });
+                      if (errors.address) {
+                        setErrors({ ...errors, address: '' });
+                      }
+                    }}
                   ></textarea>
+                  {errors.address && (
+                    <p className="text-red-500 text-xs mt-1">{errors.address}</p>
+                  )}
+                </div>
+
+                {/* Customer Photo Upload */}
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Customer Photo
+                  </label>
+                  <div className="space-y-3">
+                    <input
+                      type="file"
+                      accept="image/*"
+                      capture="user"
+                      onChange={handlePhotoCapture}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-blue-400 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+                    />
+                    {photoPreview && (
+                      <div className="flex items-center space-x-4 p-4 bg-gray-50 rounded-lg">
+                        <img
+                          src={photoPreview}
+                          alt="Customer"
+                          className="w-20 h-20 object-cover rounded-lg border-2 border-gray-300"
+                        />
+                        <div className="flex-1">
+                          <p className="text-sm text-gray-600">Photo uploaded successfully</p>
+                          <button
+                            onClick={removePhoto}
+                            className="text-red-500 hover:text-red-700 text-sm font-medium mt-1"
+                          >
+                            Remove Photo
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                    <p className="text-xs text-gray-500">
+                      Upload a clear photo of the customer (max 5MB, JPG/PNG/WebP)
+                    </p>
+                  </div>
                 </div>
               </div>
             </div>
 
             {/* Action Buttons */}
-            <div className="flex space-x-4">
-              <button
-                onClick={printInvoice}
-                className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-lg transition duration-300 transform hover:scale-[1.02] shadow-lg"
-              >
-                🖨️ Print Invoice
-              </button>
-              <button
-                onClick={() => setShowForm(false)}
-                className="flex-1 bg-gray-500 hover:bg-gray-600 text-white font-bold py-3 px-6 rounded-lg transition duration-300"
-              >
-                Cancel
-              </button>
+            <div className="space-y-3">
+              {/* Save Billing Button */}
+              {!isBillingSaved && (
+                <div className="space-y-2">
+                  {hasFormChanged() && result && (
+                    <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-2 text-center">
+                      <p className="text-yellow-800 text-sm font-medium">⚠️ You have unsaved changes</p>
+                    </div>
+                  )}
+                  <button
+                    onClick={saveBilling}
+                    disabled={isSubmitting || !result}
+                    className={`w-full font-bold py-3 px-6 rounded-lg transition duration-300 transform shadow-lg ${
+                      isSubmitting || !result
+                        ? 'bg-green-400 cursor-not-allowed text-white'
+                        : hasFormChanged() && result
+                        ? 'bg-green-600 hover:bg-green-700 text-white hover:scale-[1.02] animate-pulse'
+                        : 'bg-green-500 text-white'
+                    }`}
+                  >
+                    {isSubmitting ? (
+                      <span className="flex items-center justify-center">
+                        <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                        Saving...
+                      </span>
+                    ) : hasFormChanged() && result ? (
+                      '💾 Save Billing'
+                    ) : (
+                      '✅ Billing Up to Date'
+                    )}
+                  </button>
+                </div>
+              )}
+
+              {/* Status Message */}
+              {isBillingSaved && (
+                <div className="bg-green-50 border border-green-200 rounded-lg p-3 text-center">
+                  <p className="text-green-800 font-semibold">✅ Billing Saved Successfully!</p>
+                  <p className="text-green-600 text-sm">You can now print the invoice.</p>
+                </div>
+              )}
+
+              {/* Print and Cancel Buttons */}
+              <div className="flex space-x-4">
+                <button
+                  onClick={printInvoice}
+                  disabled={isSubmitting || !isBillingSaved}
+                  className={`flex-1 font-bold py-3 px-6 rounded-lg transition duration-300 transform shadow-lg ${
+                    isSubmitting || !isBillingSaved
+                      ? 'bg-blue-400 cursor-not-allowed text-white'
+                      : 'bg-blue-600 hover:bg-blue-700 text-white hover:scale-[1.02]'
+                  }`}
+                >
+                  🖨️ Print Invoice
+                </button>
+                <button
+                  onClick={() => setShowForm(false)}
+                  disabled={isSubmitting}
+                  className={`flex-1 font-bold py-3 px-6 rounded-lg transition duration-300 ${
+                    isSubmitting
+                      ? 'bg-gray-400 cursor-not-allowed text-gray-200'
+                      : 'bg-gray-500 hover:bg-gray-600 text-white'
+                  }`}
+                >
+                  Cancel
+                </button>
+              </div>
             </div>
           </div>
         </div>

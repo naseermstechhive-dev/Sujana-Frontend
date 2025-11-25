@@ -13,14 +13,7 @@ const Footer = () => {
     contact: {
       phone: ['6303060488', '9010330078'],
     },
-    services: [
-      'Spot Cash for Gold',
-      'Gold Loan Take Over',
-      'Release Pledged Gold',
-      'Second Hand Gold Jewellery Buying',
-      'Gold Scrap Buying',
-      'Instant Quotes for Jewellery',
-    ],
+
     operatingHours: {
       mondayToSaturday: '10:00 AM - 7:00 PM',
       sunday: 'Closed',
@@ -34,7 +27,7 @@ const Footer = () => {
   return (
     <footer className="bg-black text-white">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
           {/* Company Info */}
           <div>
             <div className="flex items-center mb-4">
@@ -89,27 +82,12 @@ const Footer = () => {
             </div>
           </div>
 
-          {/* Services */}
-          <div>
-            <h3 className="text-lg font-semibold text-yellow-400 mb-4">
-              Our Services
-            </h3>
-            <ul className="space-y-2 text-sm text-gray-300">
-              {companyData.services.slice(0, 4).map((service, index) => (
-                <li key={index} className="flex items-center">
-                  <span className="text-yellow-400 mr-2">•</span>
-                  {service}
-                </li>
-              ))}
-            </ul>
-          </div>
-
           {/* Contact Info */}
           <div>
             <h3 className="text-lg font-semibold text-yellow-400 mb-4">
               Contact Info
             </h3>
-            <div className="space-y-3 text-sm text-gray-300">
+            <div className="space-y-3 text-sm text-gray-300 mb-6">
               <div className="flex items-start">
                 <svg
                   className="h-5 w-5 text-yellow-400 mr-2 mt-0.5 flex-shrink-0"
@@ -222,6 +200,22 @@ const Footer = () => {
                 </Link>
               </li>
             </ul>
+          </div>
+        </div>
+
+        {/* Bottom Right Map */}
+        <div className="relative">
+          <div className="absolute bottom-8 right-8 w-36 h-24 md:w-48 md:h-32 rounded-lg overflow-hidden shadow-lg border border-gray-600">
+            <iframe
+              src="https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d3888.5!2d78.8237!3d14.4673!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x3bbbf9b9b9b9b9b9%3A0x9b9b9b9b9b9b9b9b!2sOpp%20Apsara%20Theatre%2C%20Apsara%20Cir%20Road%2C%20Kadapa%2C%20Andhra%20Pradesh%20516001!5e0!3m2!1sen!2sin!4v1690000000000!5m2!1sen!2sin"
+              width="100%"
+              height="100%"
+              style={{ border: 0 }}
+              allowFullScreen=""
+              loading="lazy"
+              referrerPolicy="no-referrer-when-downgrade"
+              title="Sujana Gold Location"
+            ></iframe>
           </div>
         </div>
 
