@@ -1,5 +1,6 @@
 // const API_BASE_URL = 'https://sujana-backend-1.onrender.com/api';
-const API_BASE_URL = 'http://localhost:5001/api'
+const API_BASE_URL = 'https://sujana-backend-ruh8.onrender.com/api' 
+// const API_BASE_URL = 'http://localhost:5001/api' 
 
 const apiRequest = async (endpoint, options = {}) => {
   const url = `${API_BASE_URL}${endpoint}`;
