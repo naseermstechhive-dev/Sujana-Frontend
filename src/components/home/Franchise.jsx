@@ -28,7 +28,7 @@ const Franchise = () => {
   ];
 
   const requirements = [
-    "Investment range: ₹50 Lakhs - ₹2 Crores",
+    "Investment range: ₹5 Lakhs - ₹10 Lakhs",
     "Business experience preferred",
     "Location: 1000-2000 sq ft commercial space",
     "Local market knowledge",
@@ -70,11 +70,11 @@ const Franchise = () => {
           className="grid grid-cols-2 md:grid-cols-4 gap-8 mb-16"
         >
           <div className="text-center">
-            <div className="text-3xl font-bold text-yellow-600 mb-2">50+</div>
+            <div className="text-3xl font-bold text-yellow-600 mb-2">10+</div>
             <div className="text-sm text-gray-600">Franchise Partners</div>
           </div>
           <div className="text-center">
-            <div className="text-3xl font-bold text-yellow-600 mb-2">₹500Cr+</div>
+            <div className="text-3xl font-bold text-yellow-600 mb-2">₹5 Lakhs+</div>
             <div className="text-sm text-gray-600">Combined Turnover</div>
           </div>
           <div className="text-center">

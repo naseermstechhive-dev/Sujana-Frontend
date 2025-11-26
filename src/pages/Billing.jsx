@@ -41,6 +41,7 @@ const Billing = () => {
   const [commissionPercentage, setCommissionPercentage] = useState(2);
   const [commissionAmount, setCommissionAmount] = useState(0);
   const [renewalAmount, setRenewalAmount] = useState(100000); // Default 1 Lakh
+  const [editableAmount, setEditableAmount] = useState(''); // Editable final amount
 
   // Removed useEffect for auto-calculation
   // useEffect(() => { ... }, [commissionPercentage]);
@@ -66,6 +67,19 @@ const Billing = () => {
     }
     loadCompany();
   }, []);
+
+  // Update result calculation editedAmount when editableAmount changes
+  useEffect(() => {
+    if (result && editableAmount) {
+      setResult(prev => ({
+        ...prev,
+        calculation: {
+          ...prev.calculation,
+          editedAmount: parseFloat(editableAmount) || prev.finalPayout,
+        },
+      }));
+    }
+  }, [editableAmount, result]);
 
   async function getNextInvoice() {
     try {
@@ -128,7 +142,13 @@ const Billing = () => {
       ornamentCode,
       // Add commission to result for display/invoice
       commissionAmount: calculatedCommission,
+      calculation: {
+        editedAmount: finalPayout, // Initially set to calculated amount
+      },
     });
+
+    // Set editable amount to the calculated final payout
+    setEditableAmount(finalPayout.toString());
   }
 
   // Photo handling functions
@@ -175,6 +195,7 @@ const Billing = () => {
       ornamentType,
       ornamentCode,
       customerPhoto: photoPreview,
+      editableAmount,
     });
   }, []);
 
@@ -194,6 +215,7 @@ const Billing = () => {
       ornamentType,
       ornamentCode,
       customerPhoto: photoPreview,
+      editableAmount,
     };
 
     const hasChanged = JSON.stringify(currentData) !== JSON.stringify(initialFormData);
@@ -292,6 +314,7 @@ const Billing = () => {
           stone: result.stone,
           net: result.net,
           finalPayout: result.finalPayout,
+          editedAmount: parseFloat(editableAmount) || result.finalPayout,
         },
         invoiceNo: result.invoiceNo,
         billingType,
@@ -317,6 +340,7 @@ const Billing = () => {
         ornamentType,
         ornamentCode,
         customerPhoto: photoPreview,
+        editableAmount,
       });
 
     } catch (error) {
@@ -351,10 +375,8 @@ const Billing = () => {
       newErrors.aadhar = 'Aadhar number must be exactly 12 digits';
     }
 
-    // PAN validation
-    if (!customer.pan.trim()) {
-      newErrors.pan = 'PAN number is required';
-    } else if (!/^[A-Z]{5}[0-9]{4}[A-Z]{1}$/.test(customer.pan.trim().toUpperCase())) {
+    // PAN validation (optional)
+    if (customer.pan.trim() && !/^[A-Z]{5}[0-9]{4}[A-Z]{1}$/.test(customer.pan.trim().toUpperCase())) {
       newErrors.pan = 'PAN number must be 10 characters: 5 letters, 4 numbers, 1 letter (e.g., ABCDE1234F)';
     }
 
@@ -582,7 +604,7 @@ const Billing = () => {
               <td>${r.stone} g</td>
               <td>${r.net} g</td>
               <td>${r.purityLabel}</td>
-              <td>₹ ${Number(r.finalPayout).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+              <td>₹ ${Number(r.calculation?.editedAmount || r.finalPayout).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
             </tr>
 
             <tr class="center bold">
@@ -591,7 +613,7 @@ const Billing = () => {
               <td>${r.stone}</td>
               <td>${r.net}</td>
               <td>-</td>
-              <td>₹ ${Number(r.finalPayout).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+              <td>₹ ${Number(r.calculation?.editedAmount || r.finalPayout).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
             </tr>
           </table>
 
@@ -650,7 +672,7 @@ const Billing = () => {
             <!-- AMOUNT IN WORDS -->
             <table>
               <tr>
-                <td><b>AMOUNT IN WORDS :</b> ${numberToWords(Math.round(r.finalPayout))}</td>
+                <td><b>AMOUNT IN WORDS :</b> ${numberToWords(Math.round(r.calculation?.editedAmount || r.finalPayout))}</td>
               </tr>
             </table>
           </table>
@@ -716,7 +738,7 @@ const Billing = () => {
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-yellow-400 focus:border-yellow-400"
                 >
                   <option value="Physical">Physical</option>
-                  <option value="Renewal">Renewal</option>
+                  <option value="Renewal">Release</option>
                   <option value="TakeOver">Take Over</option>
                 </select>
               </div>
@@ -961,15 +983,21 @@ const Billing = () => {
               </div>
 
               {result && (
-                <div className="mt-4 p-4 bg-gradient-to-r from-green-50 to-green-100 border-2 border-green-300 rounded-lg text-center">
-                  <div className="text-sm text-gray-600 mb-2">
-                    Final Payout Amount
+                <div className="mt-4 p-4 bg-gradient-to-r from-green-50 to-green-100 border-2 border-green-300 rounded-lg">
+                  <div className="text-sm text-gray-600 mb-2 text-center">
+                    Final Payout Amount (Editable)
                   </div>
-                  <div className="text-3xl font-bold text-green-600">
-                    ₹
-                    {Number(result.finalPayout).toLocaleString('en-IN', {
-                      minimumFractionDigits: 2,
-                    }) || '0.00'}
+                  <div className="flex items-center justify-center">
+                    <span className="text-2xl font-bold text-green-600 mr-2">₹</span>
+                    <input
+                      type="number"
+                      value={editableAmount}
+                      onChange={(e) => setEditableAmount(e.target.value)}
+                      className="text-3xl font-bold text-green-600 bg-transparent border-b-2 border-green-400 focus:outline-none focus:border-green-600 text-center w-48"
+                      step="0.01"
+                      min="0"
+                      placeholder="0.00"
+                    />
                   </div>
                 </div>
               )}
@@ -1062,11 +1090,11 @@ const Billing = () => {
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    PAN Number *
+                    PAN Number
                   </label>
                   <input
                     type="text"
-                    placeholder="Enter PAN number (e.g., ABCDE1234F)"
+                    placeholder="Enter PAN number (optional, e.g., ABCDE1234F)"
                     maxLength="10"
                     className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:border-transparent uppercase ${
                       errors.pan
