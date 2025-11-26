@@ -74,7 +74,7 @@ const Franchise = () => {
             <div className="text-sm text-gray-600">Franchise Partners</div>
           </div>
           <div className="text-center">
-            <div className="text-3xl font-bold text-yellow-600 mb-2">₹5 Lakhs+</div>
+            <div className="text-3xl font-bold text-yellow-600 mb-2">₹50 Lakhs+</div>
             <div className="text-sm text-gray-600">Combined Turnover</div>
           </div>
           <div className="text-center">
