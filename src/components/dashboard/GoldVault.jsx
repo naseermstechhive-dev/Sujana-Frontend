@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { FaCoins } from 'react-icons/fa';
+import { FaCoins, FaRupeeSign } from 'react-icons/fa';
+import GoldPriceSetter from '../GoldPriceSetter';
 
 const GoldVault = ({ billings, renewals, takeovers }) => {
   const [goldVaultTab, setGoldVaultTab] = useState('physical');
@@ -47,6 +48,17 @@ const GoldVault = ({ billings, renewals, takeovers }) => {
           }`}
         >
           Takeovers
+        </button>
+        <button
+          onClick={() => setGoldVaultTab('prices')}
+          className={`flex-1 py-2 px-4 rounded-md text-sm font-medium transition-colors ${
+            goldVaultTab === 'prices'
+              ? 'bg-white text-gray-900 shadow-sm'
+              : 'text-gray-600 hover:text-gray-900'
+          }`}
+        >
+          <FaRupeeSign className="inline mr-1" />
+          Price Settings
         </button>
       </div>
 
@@ -332,6 +344,15 @@ const GoldVault = ({ billings, renewals, takeovers }) => {
               </div>
             )}
           </div>
+        </div>
+      )}
+
+      {goldVaultTab === 'prices' && (
+        <div>
+          <h3 className="text-lg font-semibold mb-4">Gold Price Settings</h3>
+          <p className="text-gray-600 mb-4">Set and manage gold prices for different purity levels. These prices will be used throughout the system for calculations and billings.</p>
+
+          <GoldPriceSetter />
         </div>
       )}
     </div>
