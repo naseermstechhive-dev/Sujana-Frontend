@@ -1,7 +1,8 @@
 // Automatically use localhost in development, Render backend in production
 const API_BASE_URL = import.meta.env.DEV 
   ? 'http://localhost:5001/api'  // Development - use local backend
-  : 'https://sujana-backend-ruh8.onrender.com/api'; // Production - use Render backend 
+  // : 'https://sujana-backend-ruh8.onrender.com/api'; // Production - use Render backend 
+  : 'https://sujana-backend-1-gw0h.onrender.com/api';
 
 const apiRequest = async (endpoint, options = {}) => {
   const url = `${API_BASE_URL}${endpoint}`;
