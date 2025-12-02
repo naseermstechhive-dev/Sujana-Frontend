@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { FaCoins, FaRupeeSign } from 'react-icons/fa';
 import GoldPriceSetter from '../GoldPriceSetter';
 
-const GoldVault = ({ billings, renewals, takeovers }) => {
+const GoldVault = ({ billings, renewals = [], takeovers = [] }) => {
   const [goldVaultTab, setGoldVaultTab] = useState('physical');
 
   return (
@@ -14,7 +14,7 @@ const GoldVault = ({ billings, renewals, takeovers }) => {
         </div>
       </div>
       <p className="text-gray-600 mb-6">
-        Manage all gold transactions: Physical sales, Bank renewals, and Takeovers.
+        Manage all gold transactions: Physical sales, Bank releases, and Takeovers.
       </p>
 
       {/* Tab Navigation */}
@@ -30,14 +30,14 @@ const GoldVault = ({ billings, renewals, takeovers }) => {
           Physical Sales
         </button>
         <button
-          onClick={() => setGoldVaultTab('renewal')}
+          onClick={() => setGoldVaultTab('release')}
           className={`flex-1 py-2 px-4 rounded-md text-sm font-medium transition-colors ${
-            goldVaultTab === 'renewal'
+            goldVaultTab === 'release'
               ? 'bg-white text-gray-900 shadow-sm'
               : 'text-gray-600 hover:text-gray-900'
           }`}
         >
-          Bank Renewals
+          Bank Releases
         </button>
         <button
           onClick={() => setGoldVaultTab('takeover')}
@@ -68,12 +68,14 @@ const GoldVault = ({ billings, renewals, takeovers }) => {
           <h3 className="text-lg font-semibold mb-4">Physical Gold Sales</h3>
           <p className="text-gray-600 mb-4">Customers coming to shop to sell their gold.</p>
 
-          {/* Filter Billings for Today */}
+          {/* Filter Billings for Today - Only Physical Sales */}
           {(() => {
             const today = new Date().toDateString();
-            const todaysBillings = billings.filter(b =>
-              new Date(b.createdAt || b.date).toDateString() === today
-            );
+            const todaysBillings = billings.filter(b => {
+              const isToday = new Date(b.createdAt || b.date).toDateString() === today;
+              const isPhysical = !b.billingType || b.billingType === 'Physical';
+              return isToday && isPhysical;
+            });
 
             return (
               <>
@@ -151,7 +153,7 @@ const GoldVault = ({ billings, renewals, takeovers }) => {
                                 </span>
                               </td>
                               <td className="py-2 md:py-3 px-2 md:px-6 text-left font-mono">
-                                {billing.goldDetails?.ornamentCode}
+                                {billing.goldDetails?.kdmType || billing.goldDetails?.ornamentCode || '-'}
                               </td>
                               <td className="py-2 md:py-3 px-2 md:px-6 text-left">
                                 {billing.goldDetails?.purityLabel}
@@ -183,84 +185,93 @@ const GoldVault = ({ billings, renewals, takeovers }) => {
         </div>
       )}
 
-      {goldVaultTab === 'renewal' && (
+      {goldVaultTab === 'release' && (
         <div>
-          <h3 className="text-lg font-semibold mb-4">Bank Gold Renewals</h3>
-          <p className="text-gray-600 mb-4">Customers with gold in bank who need renewal assistance.</p>
+          <h3 className="text-lg font-semibold mb-4">Bank Gold Releases</h3>
+          <p className="text-gray-600 mb-4">Customers with gold in bank who need release assistance.</p>
 
-          {/* Renewal Stats */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-6 mb-6">
-            <div className="bg-blue-50 p-3 md:p-4 rounded-lg border border-blue-200 shadow-sm">
-              <h4 className="font-semibold text-sm md:text-base text-blue-800">Total Renewals</h4>
-              <p className="text-xl md:text-2xl font-bold text-blue-600">{renewals.length}</p>
-            </div>
-            <div className="bg-green-50 p-3 md:p-4 rounded-lg border border-green-200 shadow-sm">
-              <h4 className="font-semibold text-sm md:text-base text-green-800">Total Commission</h4>
-              <p className="text-xl md:text-2xl font-bold text-green-600">
-                ₹{renewals.reduce((acc, r) => acc + (r.renewalDetails?.commissionAmount || 0), 0).toLocaleString('en-IN')}
-              </p>
-            </div>
-            <div className="bg-purple-50 p-3 md:p-4 rounded-lg border border-purple-200 shadow-sm">
-              <h4 className="font-semibold text-sm md:text-base text-purple-800">Total Gold Weight</h4>
-              <p className="text-xl md:text-2xl font-bold text-purple-600">
-                {renewals.reduce((acc, r) => acc + (r.goldDetails?.weight || 0), 0).toFixed(3)} g
-              </p>
-            </div>
-          </div>
+          {/* Filter Release Billings */}
+          {(() => {
+            const releaseBillings = billings.filter(b => b.billingType === 'Release');
 
-          {/* Renewals Table */}
-          <div className="bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden">
-            <div className="p-4 bg-gray-50 border-b border-gray-200">
-              <h4 className="font-semibold text-lg text-gray-700">Renewal Transactions</h4>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full border-collapse">
-                <thead>
-                  <tr className="bg-gray-100 text-gray-600 uppercase text-xs md:text-sm leading-normal">
-                    <th className="py-2 md:py-3 px-2 md:px-6 text-left">Date</th>
-                    <th className="py-2 md:py-3 px-2 md:px-6 text-left">Renewal No</th>
-                    <th className="py-2 md:py-3 px-2 md:px-6 text-left">Customer</th>
-                    <th className="py-2 md:py-3 px-2 md:px-6 text-left">Bank</th>
-                    <th className="py-2 md:py-3 px-2 md:px-6 text-left">Loan Amount</th>
-                    <th className="py-2 md:py-3 px-2 md:px-6 text-left">Commission</th>
-                    <th className="py-2 md:py-3 px-2 md:px-6 text-right">Gold Weight (g)</th>
-                  </tr>
-                </thead>
-                <tbody className="text-gray-600 text-xs md:text-sm font-light">
-                  {renewals.map((renewal) => (
-                    <tr key={renewal._id} className="border-b border-gray-200 hover:bg-gray-50 transition duration-150">
-                      <td className="py-2 md:py-3 px-2 md:px-6 text-left whitespace-nowrap">
-                        {new Date(renewal.createdAt).toLocaleDateString()}
-                      </td>
-                      <td className="py-2 md:py-3 px-2 md:px-6 text-left font-medium text-blue-600">
-                        {renewal.renewalNo}
-                      </td>
-                      <td className="py-2 md:py-3 px-2 md:px-6 text-left">
-                        {renewal.customer?.name}
-                      </td>
-                      <td className="py-2 md:py-3 px-2 md:px-6 text-left">
-                        {renewal.bankDetails?.bankName}
-                      </td>
-                      <td className="py-2 md:py-3 px-2 md:px-6 text-left font-bold">
-                        ₹{renewal.bankDetails?.loanAmount?.toLocaleString('en-IN')}
-                      </td>
-                      <td className="py-2 md:py-3 px-2 md:px-6 text-left text-green-600 font-bold">
-                        ₹{renewal.renewalDetails?.commissionAmount?.toLocaleString('en-IN')}
-                      </td>
-                      <td className="py-2 md:py-3 px-2 md:px-6 text-right font-bold">
-                        {renewal.goldDetails?.weight?.toFixed(3)}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            {renewals.length === 0 && (
-              <div className="text-center py-10 text-gray-500">
-                No renewal transactions found.
-              </div>
-            )}
-          </div>
+            return (
+              <>
+                {/* Release Stats */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-6 mb-6">
+                  <div className="bg-blue-50 p-3 md:p-4 rounded-lg border border-blue-200 shadow-sm">
+                    <h4 className="font-semibold text-sm md:text-base text-blue-800">Total Releases</h4>
+                    <p className="text-xl md:text-2xl font-bold text-blue-600">{releaseBillings.length}</p>
+                  </div>
+                  <div className="bg-green-50 p-3 md:p-4 rounded-lg border border-green-200 shadow-sm">
+                    <h4 className="font-semibold text-sm md:text-base text-green-800">Total Commission</h4>
+                    <p className="text-xl md:text-2xl font-bold text-green-600">
+                      ₹{releaseBillings.reduce((acc, r) => acc + (r.commissionAmount || 0), 0).toLocaleString('en-IN')}
+                    </p>
+                  </div>
+                  <div className="bg-purple-50 p-3 md:p-4 rounded-lg border border-purple-200 shadow-sm">
+                    <h4 className="font-semibold text-sm md:text-base text-purple-800">Total Gold Weight</h4>
+                    <p className="text-xl md:text-2xl font-bold text-purple-600">
+                      {releaseBillings.reduce((acc, r) => acc + (r.goldDetails?.weight || 0), 0).toFixed(3)} g
+                    </p>
+                  </div>
+                </div>
+
+                {/* Releases Table */}
+                <div className="bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden">
+                  <div className="p-4 bg-gray-50 border-b border-gray-200">
+                    <h4 className="font-semibold text-lg text-gray-700">Release Transactions</h4>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full border-collapse">
+                      <thead>
+                        <tr className="bg-gray-100 text-gray-600 uppercase text-xs md:text-sm leading-normal">
+                          <th className="py-2 md:py-3 px-2 md:px-6 text-left">Date</th>
+                          <th className="py-2 md:py-3 px-2 md:px-6 text-left">Invoice No</th>
+                          <th className="py-2 md:py-3 px-2 md:px-6 text-left">Customer</th>
+                          <th className="py-2 md:py-3 px-2 md:px-6 text-left">Bank</th>
+                          <th className="py-2 md:py-3 px-2 md:px-6 text-left">Release Amount</th>
+                          <th className="py-2 md:py-3 px-2 md:px-6 text-left">Commission</th>
+                          <th className="py-2 md:py-3 px-2 md:px-6 text-right">Gold Weight (g)</th>
+                        </tr>
+                      </thead>
+                      <tbody className="text-gray-600 text-xs md:text-sm font-light">
+                        {releaseBillings.map((billing) => (
+                          <tr key={billing._id} className="border-b border-gray-200 hover:bg-gray-50 transition duration-150">
+                            <td className="py-2 md:py-3 px-2 md:px-6 text-left whitespace-nowrap">
+                              {new Date(billing.createdAt || billing.date).toLocaleDateString()}
+                            </td>
+                            <td className="py-2 md:py-3 px-2 md:px-6 text-left font-medium text-blue-600">
+                              {billing.invoiceNo}
+                            </td>
+                            <td className="py-2 md:py-3 px-2 md:px-6 text-left">
+                              {billing.customer?.name}
+                            </td>
+                            <td className="py-2 md:py-3 px-2 md:px-6 text-left">
+                              {billing.bankName || '-'}
+                            </td>
+                            <td className="py-2 md:py-3 px-2 md:px-6 text-left font-bold">
+                              ₹{(billing.calculation?.editedAmount || billing.calculation?.finalPayout || 0).toLocaleString('en-IN')}
+                            </td>
+                            <td className="py-2 md:py-3 px-2 md:px-6 text-left text-green-600 font-bold">
+                              ₹{(billing.commissionAmount || 0).toLocaleString('en-IN')}
+                            </td>
+                            <td className="py-2 md:py-3 px-2 md:px-6 text-right font-bold">
+                              {(billing.goldDetails?.weight || 0).toFixed(3)}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  {releaseBillings.length === 0 && (
+                    <div className="text-center py-10 text-gray-500">
+                      No release transactions found.
+                    </div>
+                  )}
+                </div>
+              </>
+            );
+          })()}
         </div>
       )}
 
@@ -269,81 +280,84 @@ const GoldVault = ({ billings, renewals, takeovers }) => {
           <h3 className="text-lg font-semibold mb-4">Gold Takeovers</h3>
           <p className="text-gray-600 mb-4">Take over gold from banks/other parties at today's rates.</p>
 
-          {/* Takeover Stats */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-6 mb-6">
-            <div className="bg-red-50 p-3 md:p-4 rounded-lg border border-red-200 shadow-sm">
-              <h4 className="font-semibold text-sm md:text-base text-red-800">Total Takeovers</h4>
-              <p className="text-xl md:text-2xl font-bold text-red-600">{takeovers.length}</p>
-            </div>
-            <div className="bg-orange-50 p-3 md:p-4 rounded-lg border border-orange-200 shadow-sm">
-              <h4 className="font-semibold text-sm md:text-base text-orange-800">Total Takeover Amount</h4>
-              <p className="text-xl md:text-2xl font-bold text-orange-600">
-                ₹{takeovers.reduce((acc, t) => acc + (t.takeoverDetails?.takeoverAmount || 0), 0).toLocaleString('en-IN')}
-              </p>
-            </div>
-            <div className="bg-indigo-50 p-3 md:p-4 rounded-lg border border-indigo-200 shadow-sm">
-              <h4 className="font-semibold text-sm md:text-base text-indigo-800">Total Gold Weight</h4>
-              <p className="text-xl md:text-2xl font-bold text-indigo-600">
-                {takeovers.reduce((acc, t) => acc + (t.goldDetails?.weight || 0), 0).toFixed(3)} g
-              </p>
-            </div>
-          </div>
+          {/* Filter TakeOver Billings */}
+          {(() => {
+            const takeoverBillings = billings.filter(b => b.billingType === 'TakeOver');
 
-          {/* Takeovers Table */}
-          <div className="bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden">
-            <div className="p-4 bg-gray-50 border-b border-gray-200">
-              <h4 className="font-semibold text-lg text-gray-700">Takeover Transactions</h4>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full border-collapse">
-                <thead>
-                  <tr className="bg-gray-100 text-gray-600 uppercase text-xs md:text-sm leading-normal">
-                    <th className="py-2 md:py-3 px-2 md:px-6 text-left">Date</th>
-                    <th className="py-2 md:py-3 px-2 md:px-6 text-left">Takeover No</th>
-                    <th className="py-2 md:py-3 px-2 md:px-6 text-left">Customer</th>
-                    <th className="py-2 md:py-3 px-2 md:px-6 text-left">Pledged To</th>
-                    <th className="py-2 md:py-3 px-2 md:px-6 text-left">Takeover Amount</th>
-                    <th className="py-2 md:py-3 px-2 md:px-6 text-left">Profit/Loss</th>
-                    <th className="py-2 md:py-3 px-2 md:px-6 text-right">Gold Weight (g)</th>
-                  </tr>
-                </thead>
-                <tbody className="text-gray-600 text-xs md:text-sm font-light">
-                  {takeovers.map((takeover) => (
-                    <tr key={takeover._id} className="border-b border-gray-200 hover:bg-gray-50 transition duration-150">
-                      <td className="py-2 md:py-3 px-2 md:px-6 text-left whitespace-nowrap">
-                        {new Date(takeover.createdAt).toLocaleDateString()}
-                      </td>
-                      <td className="py-2 md:py-3 px-2 md:px-6 text-left font-medium text-blue-600">
-                        {takeover.takeoverNo}
-                      </td>
-                      <td className="py-2 md:py-3 px-2 md:px-6 text-left">
-                        {takeover.customer?.name}
-                      </td>
-                      <td className="py-2 md:py-3 px-2 md:px-6 text-left">
-                        {takeover.pledgeDetails?.pledgedTo}
-                      </td>
-                      <td className="py-2 md:py-3 px-2 md:px-6 text-left font-bold">
-                        ₹{takeover.takeoverDetails?.takeoverAmount?.toLocaleString('en-IN')}
-                      </td>
-                      <td className="py-2 md:py-3 px-2 md:px-6 text-left font-bold">
-                        <span className={takeover.takeoverDetails?.profitLoss >= 0 ? 'text-green-600' : 'text-red-600'}>
-                          ₹{takeover.takeoverDetails?.profitLoss?.toLocaleString('en-IN')}
-                        </span>
-                      </td>
-                      <td className="py-2 md:py-3 px-2 md:px-6 text-right font-bold">
-                        {takeover.goldDetails?.weight?.toFixed(3)}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            {takeovers.length === 0 && (
-              <div className="text-center py-10 text-gray-500">
-                No takeover transactions found.
-              </div>
-            )}
-          </div>
+            return (
+              <>
+                {/* Takeover Stats */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-6 mb-6">
+                  <div className="bg-red-50 p-3 md:p-4 rounded-lg border border-red-200 shadow-sm">
+                    <h4 className="font-semibold text-sm md:text-base text-red-800">Total Takeovers</h4>
+                    <p className="text-xl md:text-2xl font-bold text-red-600">{takeoverBillings.length}</p>
+                  </div>
+                  <div className="bg-orange-50 p-3 md:p-4 rounded-lg border border-orange-200 shadow-sm">
+                    <h4 className="font-semibold text-sm md:text-base text-orange-800">Total Takeover Amount</h4>
+                    <p className="text-xl md:text-2xl font-bold text-orange-600">
+                      ₹{takeoverBillings.reduce((acc, t) => acc + (t.calculation?.editedAmount || t.calculation?.finalPayout || 0), 0).toLocaleString('en-IN')}
+                    </p>
+                  </div>
+                  <div className="bg-indigo-50 p-3 md:p-4 rounded-lg border border-indigo-200 shadow-sm">
+                    <h4 className="font-semibold text-sm md:text-base text-indigo-800">Total Gold Weight</h4>
+                    <p className="text-xl md:text-2xl font-bold text-indigo-600">
+                      {takeoverBillings.reduce((acc, t) => acc + (t.goldDetails?.weight || 0), 0).toFixed(3)} g
+                    </p>
+                  </div>
+                </div>
+
+                {/* Takeovers Table */}
+                <div className="bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden">
+                  <div className="p-4 bg-gray-50 border-b border-gray-200">
+                    <h4 className="font-semibold text-lg text-gray-700">Takeover Transactions</h4>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full border-collapse">
+                      <thead>
+                        <tr className="bg-gray-100 text-gray-600 uppercase text-xs md:text-sm leading-normal">
+                          <th className="py-2 md:py-3 px-2 md:px-6 text-left">Date</th>
+                          <th className="py-2 md:py-3 px-2 md:px-6 text-left">Invoice No</th>
+                          <th className="py-2 md:py-3 px-2 md:px-6 text-left">Customer</th>
+                          <th className="py-2 md:py-3 px-2 md:px-6 text-left">Bank</th>
+                          <th className="py-2 md:py-3 px-2 md:px-6 text-left">Takeover Amount</th>
+                          <th className="py-2 md:py-3 px-2 md:px-6 text-right">Gold Weight (g)</th>
+                        </tr>
+                      </thead>
+                      <tbody className="text-gray-600 text-xs md:text-sm font-light">
+                        {takeoverBillings.map((billing) => (
+                          <tr key={billing._id} className="border-b border-gray-200 hover:bg-gray-50 transition duration-150">
+                            <td className="py-2 md:py-3 px-2 md:px-6 text-left whitespace-nowrap">
+                              {new Date(billing.createdAt || billing.date).toLocaleDateString()}
+                            </td>
+                            <td className="py-2 md:py-3 px-2 md:px-6 text-left font-medium text-blue-600">
+                              {billing.invoiceNo}
+                            </td>
+                            <td className="py-2 md:py-3 px-2 md:px-6 text-left">
+                              {billing.customer?.name}
+                            </td>
+                            <td className="py-2 md:py-3 px-2 md:px-6 text-left">
+                              {billing.bankName || '-'}
+                            </td>
+                            <td className="py-2 md:py-3 px-2 md:px-6 text-left font-bold">
+                              ₹{(billing.calculation?.editedAmount || billing.calculation?.finalPayout || 0).toLocaleString('en-IN')}
+                            </td>
+                            <td className="py-2 md:py-3 px-2 md:px-6 text-right font-bold">
+                              {(billing.goldDetails?.weight || 0).toFixed(3)}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  {takeoverBillings.length === 0 && (
+                    <div className="text-center py-10 text-gray-500">
+                      No takeover transactions found.
+                    </div>
+                  )}
+                </div>
+              </>
+            );
+          })()}
         </div>
       )}
 

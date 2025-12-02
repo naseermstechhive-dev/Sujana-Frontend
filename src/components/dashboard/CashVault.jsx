@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { cashAPI } from '../../services/api';
 
 const CashVault = ({
@@ -14,8 +14,62 @@ const CashVault = ({
   dailyTransactions,
   fetchDailyTransactions,
   resetInitialCash,
-  resetGoldTransactions
+  resetGoldTransactions,
+  billings
 }) => {
+  // Filter to show only today's transactions
+  const todayTransactions = useMemo(() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+
+    return cashEntries.filter(entry => {
+      const entryDate = new Date(entry.createdAt);
+      return entryDate >= today && entryDate < tomorrow;
+    });
+  }, [cashEntries]);
+
+  // Calculate today's totals
+  const todayTotals = useMemo(() => {
+    const initialCash = todayTransactions
+      .filter((e) => e.type === 'initial')
+      .reduce((acc, curr) => acc + curr.amount, 0);
+    
+    const totalDeductions = todayTransactions
+      .filter((e) => e.type === 'billing')
+      .reduce((acc, curr) => acc + curr.amount, 0);
+    
+    const remainingCash = initialCash - totalDeductions;
+    
+    // Calculate margin from billings (commission + hidden deductions)
+    const todayBillings = billings?.filter(b => {
+      const billingDate = new Date(b.createdAt || b.date);
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const tomorrow = new Date(today);
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      return billingDate >= today && billingDate < tomorrow;
+    }) || [];
+    
+    // Margin = Total amount paid - (Gold value at purchase)
+    // For now, we'll use commission amounts for Release transactions
+    const margin = todayBillings.reduce((acc, b) => {
+      if (b.billingType === 'Release' && b.commissionAmount) {
+        return acc + b.commissionAmount;
+      }
+      // For Physical and TakeOver, margin is calculated from hidden deductions
+      // This would need to be calculated based on gold sale price vs purchase price
+      return acc;
+    }, 0);
+
+    return {
+      initialCash,
+      totalDeductions,
+      remainingCash,
+      margin
+    };
+  }, [todayTransactions, billings]);
   return (
     <div>
       <h2 className="text-2xl font-bold mb-4">Cash Transactions</h2>
@@ -98,57 +152,68 @@ const CashVault = ({
               >
                 Daily Transactions
               </button>
+              <button
+                onClick={async () => {
+                  if (!window.confirm('Are you sure you want to end the day? This will:\n- Save today\'s margin data (for Analytics)\n- Reset initial cash (for next day)\n- Reset gold transactions\n\nNote: All transaction data is preserved in MongoDB for Analytics. Cash Vault will only show tomorrow\'s transactions after you set new initial cash.')) {
+                    return;
+                  }
+                  try {
+                    // Calculate and save margin (for historical record in Analytics)
+                    await fetchMargin();
+                    // Reset initial cash only (billing deductions stay in DB for Analytics)
+                    await cashAPI.resetAllCash();
+                    // Reset gold transactions
+                    await resetGoldTransactions();
+                    // Refresh cash vault
+                    await fetchCashVault();
+                    // Refresh initial cash status
+                    await checkInitialCashStatus();
+                    alert('Day ended successfully! Initial cash reset. All historical data preserved in MongoDB for Analytics and Expense Tracker. Set new initial cash to start next day.');
+                  } catch (error) {
+                    alert('Error ending day: ' + error.message);
+                  }
+                }}
+                className="bg-indigo-500 hover:bg-indigo-600 text-white px-4 py-2 rounded-md font-medium transition duration-300 text-sm"
+              >
+                End Day & Reset
+              </button>
             </div>
           </div>
         )}
       </div>
 
-      {/* Cash Summary */}
+      {/* Cash Summary - Today's Data Only */}
+      <div className="bg-yellow-50 border border-yellow-200 p-3 rounded-lg mb-4">
+        <p className="text-sm text-yellow-800">
+          <strong>Note:</strong> Showing only today's transactions. Historical data is available in Analytics and Expense Tracker.
+        </p>
+      </div>
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-6">
         <div className="bg-green-50 p-4 rounded-lg">
-          <h3 className="font-semibold">Initial Cash</h3>
+          <h3 className="font-semibold">Initial Cash (Today)</h3>
           <p className="text-2xl font-bold text-green-700">
-            ₹
-            {cashEntries
-              .filter((e) => e.type === 'initial')
-              .reduce((acc, curr) => acc + curr.amount, 0)
-              .toLocaleString('en-IN')}
+            ₹{todayTotals.initialCash.toLocaleString('en-IN')}
           </p>
         </div>
         <div className="bg-red-50 p-4 rounded-lg">
-          <h3 className="font-semibold">Total Billings</h3>
+          <h3 className="font-semibold">Total Deductions (Today)</h3>
           <p className="text-2xl font-bold text-red-700">
-            ₹
-            {cashEntries
-              .filter((e) => e.type === 'billing')
-              .reduce((acc, curr) => acc + curr.amount, 0)
-              .toLocaleString('en-IN')}
+            ₹{todayTotals.totalDeductions.toLocaleString('en-IN')}
           </p>
+          <p className="text-xs text-gray-600 mt-1">Physical + Release + TakeOver</p>
         </div>
         <div className="bg-blue-50 p-4 rounded-lg">
           <h3 className="font-semibold">Remaining Cash</h3>
           <p className="text-2xl font-bold text-blue-700">
-            ₹
-            {(() => {
-              const initialCash = cashEntries
-                .filter((e) => e.type === 'initial')
-                .reduce((acc, curr) => acc + curr.amount, 0);
-              const totalBillings = cashEntries
-                .filter((e) => e.type === 'billing')
-                .reduce((acc, curr) => acc + curr.amount, 0);
-              return (initialCash - totalBillings).toLocaleString('en-IN');
-            })()}
+            ₹{todayTotals.remainingCash.toLocaleString('en-IN')}
           </p>
         </div>
         <div className="bg-purple-50 p-4 rounded-lg">
-          <h3 className="font-semibold">Margin</h3>
+          <h3 className="font-semibold">Margin (Today)</h3>
           <p className="text-2xl font-bold text-purple-700">
-            ₹
-            {cashEntries
-              .filter((e) => e.type === 'billing')
-              .reduce((acc, curr) => acc + curr.amount, 0)
-              .toLocaleString('en-IN')}
+            ₹{todayTotals.margin.toLocaleString('en-IN')}
           </p>
+          <p className="text-xs text-gray-600 mt-1">Commission + Hidden Deductions</p>
         </div>
       </div>
 
@@ -189,7 +254,7 @@ const CashVault = ({
               <div className="text-xl font-bold text-blue-600">₹{dailyTransactions.summary.totalBillings.toLocaleString('en-IN')}</div>
             </div>
             <div className="bg-white p-4 rounded border">
-              <div className="text-sm text-gray-600">Renewals</div>
+              <div className="text-sm text-gray-600">Releases</div>
               <div className="text-xl font-bold text-green-600">₹{dailyTransactions.summary.totalRenewals.toLocaleString('en-IN')}</div>
             </div>
             <div className="bg-white p-4 rounded border">
@@ -213,15 +278,15 @@ const CashVault = ({
         </div>
       )}
 
-      {/* Transactions List */}
+      {/* Transactions List - Today Only */}
       <div className="bg-white border border-gray-200 rounded-lg p-6">
-        <h3 className="font-semibold text-lg mb-4">Recent Transactions</h3>
+        <h3 className="font-semibold text-lg mb-4">Today's Transactions</h3>
         <div className="overflow-x-auto">
           <table className="w-full border-collapse">
             <thead>
               <tr className="bg-gray-50">
                 <th className="border border-gray-300 px-2 md:px-4 py-2 text-left text-xs md:text-sm">
-                  Date
+                  Time
                 </th>
                 <th className="border border-gray-300 px-2 md:px-4 py-2 text-left text-xs md:text-sm">
                   Type
@@ -238,27 +303,37 @@ const CashVault = ({
               </tr>
             </thead>
             <tbody>
-              {cashEntries.map((entry) => (
-                <tr key={entry._id} className="hover:bg-gray-50">
-                  <td className="border border-gray-300 px-2 md:px-4 py-2 text-xs md:text-sm">
-                    {new Date(entry.createdAt).toLocaleString()}
-                  </td>
-                  <td className="border border-gray-300 px-2 md:px-4 py-2 capitalize text-xs md:text-sm">
-                    {entry.type}
-                  </td>
-                  <td className="border border-gray-300 px-2 md:px-4 py-2 text-xs md:text-sm">
-                    {entry.type === 'initial' ? 'Initial cash added' :
-                     entry.type === 'billing' ? 'Billing deduction' :
-                     entry.type === 'remaining' ? 'Remaining cash added' : entry.type}
-                  </td>
-                  <td className="border border-gray-300 px-2 md:px-4 py-2 font-bold text-xs md:text-sm">
-                    ₹{entry.amount.toLocaleString('en-IN')}
-                  </td>
-                  <td className="border border-gray-300 px-2 md:px-4 py-2 text-xs md:text-sm">
-                    {entry.addedBy?.name || 'Unknown'}
+              {todayTransactions.length === 0 ? (
+                <tr>
+                  <td colSpan="5" className="border border-gray-300 px-4 py-8 text-center text-gray-500">
+                    No transactions for today yet.
                   </td>
                 </tr>
-              ))}
+              ) : (
+                todayTransactions.map((entry) => (
+                  <tr key={entry._id} className="hover:bg-gray-50">
+                    <td className="border border-gray-300 px-2 md:px-4 py-2 text-xs md:text-sm">
+                      {new Date(entry.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </td>
+                    <td className="border border-gray-300 px-2 md:px-4 py-2 capitalize text-xs md:text-sm">
+                      {entry.type}
+                    </td>
+                    <td className="border border-gray-300 px-2 md:px-4 py-2 text-xs md:text-sm">
+                      {entry.type === 'initial' ? 'Initial cash added' :
+                       entry.type === 'billing' ? 'Cash deduction (Physical/Release/TakeOver)' :
+                       entry.type === 'remaining' ? 'Remaining cash added' : entry.type}
+                    </td>
+                    <td className={`border border-gray-300 px-2 md:px-4 py-2 font-bold text-xs md:text-sm ${
+                      entry.type === 'initial' || entry.type === 'remaining' ? 'text-green-600' : 'text-red-600'
+                    }`}>
+                      {entry.type === 'initial' || entry.type === 'remaining' ? '+' : '-'}₹{entry.amount.toLocaleString('en-IN')}
+                    </td>
+                    <td className="border border-gray-300 px-2 md:px-4 py-2 text-xs md:text-sm">
+                      {entry.addedBy?.name || 'Unknown'}
+                    </td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
         </div>

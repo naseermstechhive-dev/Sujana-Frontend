@@ -31,9 +31,7 @@ const Billing = () => {
   const [stoneWeight, setStoneWeight] = useState('');
   const [purityIndex, setPurityIndex] = useState(0);
   const [ornamentType, setOrnamentType] = useState('Gold Ornament');
-  const [ornamentCode, setOrnamentCode] = useState(() =>
-    Math.floor(100 + Math.random() * 900).toString()
-  );
+  const [kdmType, setKdmType] = useState('KDM');
 
   // New State for Billing Requirements
   const [billingType, setBillingType] = useState('Physical');
@@ -71,15 +69,21 @@ const Billing = () => {
   // Update result calculation editedAmount when editableAmount changes
   useEffect(() => {
     if (result && editableAmount) {
-      setResult(prev => ({
-        ...prev,
-        calculation: {
-          ...prev.calculation,
-          editedAmount: parseFloat(editableAmount) || prev.finalPayout,
-        },
-      }));
+      const newEditedAmount = parseFloat(editableAmount) || result.finalPayout;
+      const currentEditedAmount = result.calculation?.editedAmount;
+      // Only update if the value actually changed to prevent infinite loop
+      if (currentEditedAmount !== newEditedAmount && !isNaN(newEditedAmount)) {
+        setResult(prev => ({
+          ...prev,
+          calculation: {
+            ...prev.calculation,
+            editedAmount: newEditedAmount,
+          },
+        }));
+      }
     }
-  }, [editableAmount, result]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editableAmount]); // Only depend on editableAmount to prevent infinite loop
 
   async function getNextInvoice() {
     try {
@@ -139,7 +143,7 @@ const Billing = () => {
       date: new Date(),
       invoiceNo: currentInvoiceNo,
       ornamentType,
-      ornamentCode,
+          kdmType,
       // Add commission to result for display/invoice
       commissionAmount: calculatedCommission,
       calculation: {
@@ -193,7 +197,7 @@ const Billing = () => {
       stoneWeight,
       purityIndex,
       ornamentType,
-      ornamentCode,
+      kdmType,
       customerPhoto: photoPreview,
       editableAmount,
     });
@@ -213,7 +217,7 @@ const Billing = () => {
       stoneWeight,
       purityIndex,
       ornamentType,
-      ornamentCode,
+      kdmType,
       customerPhoto: photoPreview,
       editableAmount,
     };
@@ -306,7 +310,7 @@ const Billing = () => {
           purityIndex,
           purityLabel: result.purityLabel,
           ornamentType,
-          ornamentCode,
+          kdmType,
         },
         calculation: {
           selectedRatePerGram: result.selectedRatePerGram,
@@ -319,8 +323,8 @@ const Billing = () => {
         invoiceNo: result.invoiceNo,
         billingType,
         bankName: billingType !== 'Physical' ? bankName : undefined,
-        commissionPercentage: billingType === 'Renewal' ? commissionPercentage : undefined,
-        commissionAmount: billingType === 'Renewal' ? commissionAmount : undefined,
+        commissionPercentage: billingType === 'Release' ? commissionPercentage : undefined,
+        commissionAmount: billingType === 'Release' ? commissionAmount : undefined,
       };
 
       await billingAPI.createBilling(billingData);
@@ -338,7 +342,7 @@ const Billing = () => {
         stoneWeight,
         purityIndex,
         ornamentType,
-        ornamentCode,
+          kdmType,
         customerPhoto: photoPreview,
         editableAmount,
       });
@@ -405,20 +409,20 @@ const Billing = () => {
       newErrors.ornamentType = 'Ornament type is required';
     }
 
-    if (!ornamentCode.trim()) {
-      newErrors.ornamentCode = 'Ornament code is required';
+    if (!kdmType) {
+      newErrors.kdmType = 'KDM type is required';
     }
 
     // Billing type specific validations
-    if (billingType === 'Renewal' || billingType === 'TakeOver') {
+    if (billingType === 'Release' || billingType === 'TakeOver') {
       if (!bankName.trim()) {
-        newErrors.bankName = 'Bank name is required for renewal/takeover';
+        newErrors.bankName = 'Bank name is required for release/takeover';
       }
     }
 
-    if (billingType === 'Renewal') {
+    if (billingType === 'Release') {
       if (!renewalAmount || parseFloat(renewalAmount) <= 0) {
-        newErrors.renewalAmount = 'Renewal amount must be greater than 0';
+        newErrors.renewalAmount = 'Release amount must be greater than 0';
       }
     }
 
@@ -432,6 +436,204 @@ const Billing = () => {
 
   // Removed generateInvoiceNo using localStorage
   // function generateInvoiceNo() { ... }
+
+  // Common invoice styles
+  const getInvoiceStyles = () => `
+    body { font-family: Arial, sans-serif; padding: 0; margin: 0; background: white; }
+    .invoice-container { width: 1000px; min-height: 1425px; margin: auto; border: 1px solid black; padding: 10px; }
+    table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    th, td { border: 1px solid black; padding: 6px; text-align: left; }
+    .center { text-align: center; }
+    .bold { font-weight: bold; }
+    .header-table td { border: none; }
+    .no-border td { border: none !important; }
+    .logo { text-align: center; margin-bottom: 10px; }
+    .logo img { width: 80px; height: 60px; object-fit: contain; }
+    .terms-signatures { margin-top: 15px; }
+    @page {
+      margin: 0.5cm;
+      size: A4;
+    }
+    @media print {
+      .no-print { display: none; }
+      body {
+        margin: 0;
+        padding: 0;
+        -webkit-print-color-adjust: exact;
+        color-adjust: exact;
+      }
+      .invoice-container {
+        width: 100% !important;
+        max-width: 18cm !important;
+        height: auto !important;
+        min-height: auto !important;
+        margin: 0 !important;
+        border: 1px solid black !important;
+        padding: 8px !important;
+        box-sizing: border-box !important;
+      }
+    }
+  `;
+
+  // Common header section
+  const getInvoiceHeader = (comp, r) => `
+    <table class="header-table">
+      <tr>
+        <td class="center" colspan="3">
+          <div class="logo">
+            <img src="/images/${comp.logoFile}" alt="${comp.companyName}" />
+          </div>
+          <div class="bold" style="font-size:24px; margin-top:5px;">
+            ${comp.companyName}
+          </div>
+          <div style="font-size:12px; margin-top:5px; line-height:1.4;">
+            ${comp.addressLine1} <br>
+            ${comp.addressLine2} <br>
+            <b>Phone:</b> ${comp.phone}
+          </div>
+        </td>
+      </tr>
+    </table>
+    <table>
+      <tr>
+        <td><b>BRANCH :</b> Kadapa - Central</td>
+        <td><b>CONTACT :</b> ${comp.phone}</td>
+        <td><b>INVOICE NO :</b> ${r.invoiceNo}</td>
+      </tr>
+    </table>
+  `;
+
+  // Common customer info section
+  const getCustomerInfo = (c, r, photoPreview) => `
+    <table>
+      <tr>
+        <td><b>CUSTOMER ID</b><br> SUJANA-${r.invoiceNo.split('-').pop()}</td>
+        <td><b>DATE / TIME</b><br> ${new Date(r.date).toLocaleString()}</td>
+        <td rowspan="4" style="width:180px; padding:0; margin:0; border:1px solid black; vertical-align:top;">
+          <div style="width:100%; height:130px; border-bottom:1px solid black; display:flex; align-items:center; justify-content:center;">
+            ${photoPreview ? `<img src="${photoPreview}" style="width:100%; height:100%; object-fit:cover;" alt="Customer Photo" />` : '<div style="text-align:center; color:#999;">Photo</div>'}
+          </div>
+          <div style="border-bottom:1px solid black; padding:6px; font-size:13px;">
+            <b>ID PROOF</b><br>
+            <div style="margin-top:4px; width:100%; border:1px solid black; height:28px; text-align:center; padding-top:4px;">
+              ${c.aadhar || '____________'}
+            </div>
+          </div>
+          <div style="padding:6px; font-size:13px;">
+            <b>PAN NO</b><br>
+            <div style="margin-top:4px; width:100%; border:1px solid black; height:28px; text-align:center; padding-top:4px;">
+              ${c.pan || '____________'}
+            </div>
+          </div>
+        </td>
+      </tr>
+      <tr>
+        <td>
+          <div style="display:flex; justify-content:space-between;">
+            <div><b>CUSTOMER NAME</b><br> ${c.name}</div>
+            <div style="border-left:1px solid black; padding-left:10px; margin-left:10px;">
+              <b>GENDER</b><br> ${c.gender}
+            </div>
+          </div>
+        </td>
+        <td><b>BILL ID</b><br> ${r.invoiceNo}</td>
+      </tr>
+      <tr>
+        <td colspan="2"><b>CONTACT</b><br> ${c.mobile}</td>
+      </tr>
+      <tr>
+        <td colspan="2">
+          <b>ADDRESS :</b> ${c.address}
+        </td>
+      </tr>
+    </table>
+  `;
+
+  // Common items table
+  const getItemsTable = (r) => `
+    <table>
+      <tr class="center bold">
+        <th>ORNAMENT TYPE</th>
+        <th>KDM TYPE</th>
+        <th>GROSS WEIGHT</th>
+        <th>STONE / WAX</th>
+        <th>NET WEIGHT</th>
+        <th>PURITY</th>
+        <th>GROSS AMOUNT</th>
+      </tr>
+      <tr class="center">
+        <td>${r.ornamentType}</td>
+        <td>${r.kdmType}</td>
+        <td>${r.grams} g</td>
+        <td>${r.stone} g</td>
+        <td>${r.net} g</td>
+        <td>${r.purityLabel}</td>
+        <td>₹ ${Number(r.calculation?.editedAmount || r.finalPayout).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+      </tr>
+      <tr class="center bold">
+        <td colspan="2">GRAND TOTAL</td>
+        <td>${r.grams}</td>
+        <td>${r.stone}</td>
+        <td>${r.net}</td>
+        <td>-</td>
+        <td>₹ ${Number(r.calculation?.editedAmount || r.finalPayout).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+      </tr>
+    </table>
+  `;
+
+  // Common terms and signatures
+  const getTermsAndSignatures = (r) => `
+    <table class="terms-signatures">
+      <tr>
+        <td style="width:65%; vertical-align:top; padding:10px;">
+          <div class="bold center">TERMS & CONDITIONS</div>
+          <div style="font-size:13px; line-height:1.4;">
+            1. Ornaments once purchased shall not be returned under any circumstances. <br>
+            2. If any losses are arising out of this purchase, then you are liable to settle full amount. <br>
+            3. Selling stolen gold, silver or fake gold is a criminal offence; if found will be reported. <br>
+            4. You declare full ownership of the ornaments sold & indemnify Sujana Gold Company. <br>
+            5. Check cash before leaving the counter; no claims accepted afterward.
+          </div>
+          <br>
+          <div class="bold center">షరతులు మరియు నిబంధనలు</div>
+          <div style="font-size:13px; line-height:1.6;">
+            1. ఒకసారి కొనుగోలు చేసిన ఆభరణాలు తిరిగి స్వీకరించబడవు. <br>
+            2. ఈ కొనుగోలుతో సంబంధిత నష్టాలకు మీరు బాధ్యత వహించాలి. <br>
+            3. నకిలీ లేదా దొంగతనం చేసిన బంగారం అమ్మడం నేరం. <br>
+            4. అమ్మిన ఆభరణాల యాజమాన్యం మీదే అని మీరు ప్రకటిస్తున్నారు. <br>
+            5. కౌంటర్ వదిలే ముందు నగదు సరిచూసుకోండి.
+          </div>
+        </td>
+        <td style="width:35%; padding:0; vertical-align:top;">
+          <table style="width:100%; border-collapse: collapse; margin-top:10px;">
+            <tr>
+              <td style="width:100%; height:120px; border:1px solid black; text-align:center; font-weight:bold; vertical-align:bottom; padding:15px 10px 10px 10px; position:relative;">
+                <div style="position:absolute; bottom:8px; left:50%; transform:translateX(-50%); font-size:13px;">
+                  CUSTOMER SIGNATURE
+                </div>
+                <div style="height: 70%; display:flex; align-items:center; justify-content:center; font-size:11px; color:#666; margin-bottom:20px;">
+                  Please sign here
+                </div>
+              </td>
+            </tr>
+            <tr>
+              <td style="width:100%; height:120px; border:1px solid black; text-align:center; font-weight:bold; vertical-align:bottom; padding:15px 10px 10px 10px; position:relative;">
+                <div style="position:absolute; bottom:8px; left:50%; transform:translateX(-50%); font-size:13px;">
+                  EMPLOYEE SIGNATURE
+                </div>
+                <div style="height: 70%; display:flex; align-items:center; justify-content:center; font-size:11px; color:#666; margin-bottom:20px;">
+                  Employee signature required
+                </div>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+      <tr>
+        <td colspan="2"><b>AMOUNT IN WORDS :</b> ${numberToWords(Math.round(r.calculation?.editedAmount || r.finalPayout))}</td>
+      </tr>
+    </table>
+  `;
 
   async function printInvoice() {
     if (!result) return alert('Please calculate the amount first!');
@@ -452,6 +654,19 @@ const Billing = () => {
     const c = customer;
     const r = result;
 
+    // Route to appropriate invoice template based on billing type
+    if (billingType === 'Release') {
+      printReleaseInvoice(comp, c, r);
+    } else if (billingType === 'TakeOver') {
+      printTakeOverInvoice(comp, c, r);
+    } else {
+      printPhysicalInvoice(comp, c, r);
+    }
+  }
+
+  // Physical Billing Invoice
+  function printPhysicalInvoice(comp, c, r) {
+
     const html = `
       <!DOCTYPE html>
       <html lang="en">
@@ -459,42 +674,7 @@ const Billing = () => {
         <meta charset="UTF-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
         <title>${r.invoiceNo}</title>
-        <style>
-          body { font-family: Arial, sans-serif; padding: 0; margin: 0; background: white; }
-          .invoice-container { width: 1000px; min-height: 1425px; margin: auto; border: 1px solid black; padding: 10px; }
-          table { width: 100%; border-collapse: collapse; font-size: 14px; }
-          th, td { border: 1px solid black; padding: 6px; text-align: left; }
-          .center { text-align: center; }
-          .bold { font-weight: bold; }
-          .header-table td { border: none; }
-          .no-border td { border: none !important; }
-          .logo { text-align: center; margin-bottom: 10px; }
-          .logo img { width: 80px; height: 60px; object-fit: contain; }
-          .terms-signatures { margin-top: 15px; }
-          @page {
-            margin: 0.5cm;
-            size: A4;
-          }
-          @media print {
-            .no-print { display: none; }
-            body {
-              margin: 0;
-              padding: 0;
-              -webkit-print-color-adjust: exact;
-              color-adjust: exact;
-            }
-            .invoice-container {
-              width: 100% !important;
-              max-width: 18cm !important;
-              height: auto !important;
-              min-height: auto !important;
-              margin: 0 !important;
-              border: 1px solid black !important;
-              padding: 8px !important;
-              box-sizing: border-box !important;
-            }
-          }
-        </style>
+        <style>${getInvoiceStyles()}</style>
       </head>
       <body>
         <div class="no-print" style="text-align:center; margin:10px;">
@@ -502,180 +682,11 @@ const Billing = () => {
             Print Invoice
           </button>
         </div>
-
         <div class="invoice-container">
-          <!-- HEADER -->
-          <table class="header-table">
-            <tr>
-              <td class="center" colspan="3">
-                <div class="logo">
-                  <img src="/images/${comp.logoFile}" alt="${comp.companyName}" />
-                </div>
-                <div class="bold" style="font-size:24px; margin-top:5px;">
-                  ${comp.companyName}
-                </div>
-                <div style="font-size:12px; margin-top:5px; line-height:1.4;">
-                  ${comp.addressLine1} <br>
-                  ${comp.addressLine2} <br>
-                  <b>Phone:</b> ${comp.phone}
-                </div>
-              </td>
-            </tr>
-          </table>
-
-          <!-- TOP COMPANY INFO ROW -->
-          <table>
-            <tr>
-              <td><b>BRANCH :</b> Kadapa - Central</td>
-              <td><b>CONTACT :</b> ${comp.phone}</td>
-              <td><b>INVOICE NO :</b> ${r.invoiceNo}</td>
-            </tr>
-          </table>
-
-          <table>
-            <tr>
-              <!-- Left side fields -->
-              <td><b>CUSTOMER ID</b><br> SUJANA-${r.invoiceNo.split('-').pop()}</td>
-              <td><b>DATE / TIME</b><br> ${new Date(r.date).toLocaleString()}</td>
-
-              <!-- RIGHT SIDE PHOTO + ID PROOF + ADDRESS PROOF -->
-              <td rowspan="4" style="width:180px; padding:0; margin:0; border:1px solid black; vertical-align:top;">
-                <!-- PHOTO BOX -->
-                <div style="width:100%; height:130px; border-bottom:1px solid black; display:flex; align-items:center; justify-content:center;">
-                  ${photoPreview ? `<img src="${photoPreview}" style="width:100%; height:100%; object-fit:cover;" alt="Customer Photo" />` : '<div style="text-align:center; color:#999;">Photo</div>'}
-                </div>
-                <!-- ID PROOF ROW -->
-                <div style="border-bottom:1px solid black; padding:6px; font-size:13px;">
-                  <b>ID PROOF</b><br>
-                  <div style="margin-top:4px; width:100%; border:1px solid black; height:28px; text-align:center; padding-top:4px;">
-                    ${c.aadhar || '____________'}
-                  </div>
-                </div>
-                <!-- ADDRESS PROOF ROW -->
-                <div style="padding:6px; font-size:13px;">
-                  <b>PAN NO</b><br>
-                  <div style="margin-top:4px; width:100%; border:1px solid black; height:28px; text-align:center; padding-top:4px;">
-                    ${c.pan || '____________'}
-                  </div>
-                </div>
-              </td>
-            </tr>
-
-            <tr>
-              <td>
-                <div style="display:flex; justify-content:space-between;">
-                  <div><b>CUSTOMER NAME</b><br> ${c.name}</div>
-                  <div style="border-left:1px solid black; padding-left:10px; margin-left:10px;">
-                    <b>GENDER</b><br> ${c.gender}
-                  </div>
-                </div>
-              </td>
-              <td><b>BILL ID</b><br> ${r.invoiceNo}</td>
-            </tr>
-
-            <tr>
-              <td><b>CONTACT</b><br> ${c.mobile}</td>
-              <td><b>GOLD PRICE</b><br> ₹ ${r.selectedRatePerGram}/g</td>
-            </tr>
-
-            <tr>
-              <td colspan="2">
-                <b>ADDRESS :</b> ${c.address}
-              </td>
-            </tr>
-          </table>
-
-          <!-- ITEMS TABLE -->
-          <table>
-            <tr class="center bold">
-              <th>ORNAMENT TYPE</th>
-              <th>CODE</th>
-              <th>GROSS WEIGHT</th>
-              <th>STONE / WAX</th>
-              <th>NET WEIGHT</th>
-              <th>PURITY</th>
-              <th>GROSS AMOUNT</th>
-            </tr>
-
-            <tr class="center">
-              <td>${r.ornamentType}</td>
-              <td>${r.ornamentCode}</td>
-              <td>${r.grams} g</td>
-              <td>${r.stone} g</td>
-              <td>${r.net} g</td>
-              <td>${r.purityLabel}</td>
-              <td>₹ ${Number(r.calculation?.editedAmount || r.finalPayout).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
-            </tr>
-
-            <tr class="center bold">
-              <td colspan="2">GRAND TOTAL</td>
-              <td>${r.grams}</td>
-              <td>${r.stone}</td>
-              <td>${r.net}</td>
-              <td>-</td>
-              <td>₹ ${Number(r.calculation?.editedAmount || r.finalPayout).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
-            </tr>
-          </table>
-
-          <!-- TERMS + AMOUNTS SIDE BY SIDE -->
-          <table class="terms-signatures">
-            <tr>
-              <!-- LEFT: TERMS -->
-              <td style="width:65%; vertical-align:top; padding:10px;">
-                <div class="bold center">TERMS & CONDITIONS</div>
-                <div style="font-size:13px; line-height:1.4;">
-                  1. Ornaments once purchased shall not be returned under any circumstances. <br>
-                  2. If any losses are arising out of this purchase, then you are liable to settle full amount. <br>
-                  3. Selling stolen gold, silver or fake gold is a criminal offence; if found will be reported. <br>
-                  4. You declare full ownership of the ornaments sold & indemnify Sujana Gold Company. <br>
-                  5. Check cash before leaving the counter; no claims accepted afterward.
-                </div>
-                <br>
-                <div class="bold center">షరతులు మరియు నిబంధనలు</div>
-                <div style="font-size:13px; line-height:1.6;">
-                  1. ఒకసారి కొనుగోలు చేసిన ఆభరణాలు తిరిగి స్వీకరించబడవు. <br>
-                  2. ఈ కొనుగోలుతో సంబంధిత నష్టాలకు మీరు బాధ్యత వహించాలి. <br>
-                  3. నకిలీ లేదా దొంగతనం చేసిన బంగారం అమ్మడం నేరం. <br>
-                  4. అమ్మిన ఆభరణాల యాజమాన్యం మీదే అని మీరు ప్రకటిస్తున్నారు. <br>
-                  5. కౌంటర్ వదిలే ముందు నగదు సరిచూసుకోండి.
-                </div>
-              </td>
-
-              <!-- RIGHT: SIGNATURES -->
-              <td style="width:35%; padding:0; vertical-align:top;">
-                <!-- SIGNATURE SECTION -->
-                <table style="width:100%; border-collapse: collapse; margin-top:10px;">
-                  <tr>
-                    <td style="width:100%; height:120px; border:1px solid black; text-align:center; font-weight:bold; vertical-align:bottom; padding:15px 10px 10px 10px; position:relative;">
-                      <div style="position:absolute; bottom:8px; left:50%; transform:translateX(-50%); font-size:13px;">
-                        CUSTOMER SIGNATURE
-                      </div>
-                      <div style="height: 70%; display:flex; align-items:center; justify-content:center; font-size:11px; color:#666; margin-bottom:20px;">
-                        Please sign here
-                      </div>
-                    </td>
-                  </tr>
-                  <tr>
-                    <td style="width:100%; height:120px; border:1px solid black; text-align:center; font-weight:bold; vertical-align:bottom; padding:15px 10px 10px 10px; position:relative;">
-                      <div style="position:absolute; bottom:8px; left:50%; transform:translateX(-50%); font-size:13px;">
-                        EMPLOYEE SIGNATURE
-                      </div>
-                      <div style="height: 70%; display:flex; align-items:center; justify-content:center; font-size:11px; color:#666; margin-bottom:20px;">
-                        Employee signature required
-                      </div>
-                    </td>
-                  </tr>
-                </table>
-              </td>
-            </tr>
-            
-            <!-- AMOUNT IN WORDS -->
-            <table>
-              <tr>
-                <td><b>AMOUNT IN WORDS :</b> ${numberToWords(Math.round(r.calculation?.editedAmount || r.finalPayout))}</td>
-              </tr>
-            </table>
-          </table>
+          ${getInvoiceHeader(comp, r)}
+          ${getCustomerInfo(c, r, photoPreview)}
+          ${getItemsTable(r)}
+          ${getTermsAndSignatures(r)}
         </div>
       </body>
       </html>
@@ -683,6 +694,106 @@ const Billing = () => {
 
     const win = window.open('', '_blank', 'width=1200,height=800');
     win.document.title = `Invoice - ${r.invoiceNo}`;
+    win.document.write(html);
+    win.document.close();
+  }
+
+  // Release Billing Invoice (with Bank Details)
+  function printReleaseInvoice(comp, c, r) {
+    const bankDetailsSection = `
+      <table style="margin-top:10px;">
+        <tr class="bold center" style="background-color:#f0f0f0;">
+          <td colspan="4">BANK DETAILS</td>
+        </tr>
+        <tr>
+          <td><b>BANK NAME:</b></td>
+          <td>${bankName || '____________'}</td>
+          <td><b>RELEASE AMOUNT:</b></td>
+          <td>₹ ${Number(renewalAmount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+        </tr>
+        <tr>
+          <td><b>COMMISSION %:</b></td>
+          <td>${commissionPercentage}%</td>
+          <td><b>COMMISSION AMOUNT:</b></td>
+          <td>₹ ${Number(commissionAmount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+        </tr>
+      </table>
+    `;
+
+    const html = `
+      <!DOCTYPE html>
+      <html lang="en">
+      <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>${r.invoiceNo} - Release</title>
+        <style>${getInvoiceStyles()}</style>
+      </head>
+      <body>
+        <div class="no-print" style="text-align:center; margin:10px;">
+          <button onclick="window.print()" style="padding:10px 20px; background:#d4a017; border:none; color:white; font-size:16px; cursor:pointer;">
+            Print Invoice
+          </button>
+        </div>
+        <div class="invoice-container">
+          ${getInvoiceHeader(comp, r)}
+          ${getCustomerInfo(c, r, photoPreview)}
+          ${bankDetailsSection}
+          ${getItemsTable(r)}
+          ${getTermsAndSignatures(r)}
+        </div>
+      </body>
+      </html>
+    `;
+
+    const win = window.open('', '_blank', 'width=1200,height=800');
+    win.document.title = `Release Invoice - ${r.invoiceNo}`;
+    win.document.write(html);
+    win.document.close();
+  }
+
+  // TakeOver Billing Invoice (with Bank Details)
+  function printTakeOverInvoice(comp, c, r) {
+    const bankDetailsSection = `
+      <table style="margin-top:10px;">
+        <tr class="bold center" style="background-color:#f0f0f0;">
+          <td colspan="2">BANK DETAILS</td>
+        </tr>
+        <tr>
+          <td><b>BANK NAME:</b></td>
+          <td>${bankName || '____________'}</td>
+        </tr>
+      </table>
+    `;
+
+    const html = `
+      <!DOCTYPE html>
+      <html lang="en">
+      <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>${r.invoiceNo} - TakeOver</title>
+        <style>${getInvoiceStyles()}</style>
+      </head>
+      <body>
+        <div class="no-print" style="text-align:center; margin:10px;">
+          <button onclick="window.print()" style="padding:10px 20px; background:#d4a017; border:none; color:white; font-size:16px; cursor:pointer;">
+            Print Invoice
+          </button>
+        </div>
+        <div class="invoice-container">
+          ${getInvoiceHeader(comp, r)}
+          ${getCustomerInfo(c, r, photoPreview)}
+          ${bankDetailsSection}
+          ${getItemsTable(r)}
+          ${getTermsAndSignatures(r)}
+        </div>
+      </body>
+      </html>
+    `;
+
+    const win = window.open('', '_blank', 'width=1200,height=800');
+    win.document.title = `TakeOver Invoice - ${r.invoiceNo}`;
     win.document.write(html);
     win.document.close();
   }
@@ -738,13 +849,13 @@ const Billing = () => {
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-yellow-400 focus:border-yellow-400"
                 >
                   <option value="Physical">Physical</option>
-                  <option value="Renewal">Release</option>
+                  <option value="Release">Release</option>
                   <option value="TakeOver">Take Over</option>
                 </select>
               </div>
 
-              {/* Conditional Fields for Renewal */}
-              {billingType === 'Renewal' && (
+              {/* Conditional Fields for Release */}
+              {billingType === 'Release' && (
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4 p-4 bg-yellow-50 rounded-lg border border-yellow-200">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -772,7 +883,7 @@ const Billing = () => {
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Renewal Amount *
+                      Release Amount *
                     </label>
                     <input
                       type="number"
@@ -878,26 +989,27 @@ const Billing = () => {
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Ornament Code *
+                    KDM Type *
                   </label>
-                  <input
-                    type="text"
-                    value={ornamentCode}
+                  <select
+                    value={kdmType}
                     onChange={(e) => {
-                      setOrnamentCode(e.target.value);
-                      if (errors.ornamentCode) {
-                        setErrors({ ...errors, ornamentCode: '' });
+                      setKdmType(e.target.value);
+                      if (errors.kdmType) {
+                        setErrors({ ...errors, kdmType: '' });
                       }
                     }}
                     className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:border-transparent ${
-                      errors.ornamentCode
+                      errors.kdmType
                         ? 'border-red-500 focus:ring-red-400'
                         : 'border-gray-300 focus:ring-yellow-400'
                     }`}
-                    placeholder="e.g. 1001"
-                  />
-                  {errors.ornamentCode && (
-                    <p className="text-red-500 text-xs mt-1">{errors.ornamentCode}</p>
+                  >
+                    <option value="KDM">KDM</option>
+                    <option value="Non KDM">Non KDM</option>
+                  </select>
+                  {errors.kdmType && (
+                    <p className="text-red-500 text-xs mt-1">{errors.kdmType}</p>
                   )}
                 </div>
 

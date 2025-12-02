@@ -207,6 +207,7 @@ const Dashboard = () => {
           fetchDailyTransactions={fetchDailyTransactions}
           resetInitialCash={resetInitialCash}
           resetGoldTransactions={resetGoldTransactions}
+          billings={billings}
         />
       ),
     },

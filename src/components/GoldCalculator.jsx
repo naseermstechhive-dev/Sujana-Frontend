@@ -8,7 +8,7 @@ import jsPDF from "jspdf";
    "companyName": "Sujana Gold Pvt Ltd",
    "addressLine1": "#24, MG Road",
    "addressLine2": "Bengaluru, Karnataka - 560001",
-   "phone": "+91 98765 43210",
+   "phone": "+91 6303060488",
    "email": "support@sujanagold.in",
    "gstNumber": "29ABCDE1234F1Z5",
    "logoFile": "Sujana-Gold-Logo.jpeg"   // must exist in /public/images/

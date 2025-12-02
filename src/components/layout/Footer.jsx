@@ -11,7 +11,7 @@ const Footer = () => {
       state: 'Andhra Pradesh',
     },
     contact: {
-      phone: ['6303060488', '9010330078'],
+      phone: ['+91 6303060488'],
     },
 
     operatingHours: {

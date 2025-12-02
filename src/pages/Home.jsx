@@ -4,6 +4,7 @@ import Hero from '../components/home/Hero';
 import Services from '../components/home/Services';
 import About from '../components/home/About';
 import Franchise from '../components/home/Franchise';
+import InstagramPoster from '../components/home/InstagramPoster';
 
 const Home = () => {
   return (
@@ -11,6 +12,7 @@ const Home = () => {
       <Hero />
       <Franchise />
       <Services />
+      <InstagramPoster />
       <About />
       <FlashMessage />
     </div>

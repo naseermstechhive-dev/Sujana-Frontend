@@ -29,7 +29,6 @@ const Franchise = () => {
 
   const requirements = [
     "Investment range: ₹5 Lakhs - ₹10 Lakhs",
-    "Business experience preferred",
     "Location: 1000-2000 sq ft commercial space",
     "Local market knowledge",
     "Commitment to ethical business practices"
@@ -204,7 +203,7 @@ const Franchise = () => {
               </Link>
               <div className="flex items-center gap-2 text-yellow-100">
                 <FaPhone />
-                <span>Call us: +91 98765 43210</span>
+                <span>Call us: +91 6303060488</span>
               </div>
             </div>
           </div>

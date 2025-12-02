@@ -250,8 +250,7 @@ const UserVault = ({
             </tr>
 
             <tr>
-              <td><b>CONTACT</b><br> ${c.mobile}</td>
-              <td><b>GOLD PRICE</b><br> ₹ ${r.selectedRatePerGram}/g</td>
+              <td colspan="2"><b>CONTACT</b><br> ${c.mobile}</td>
             </tr>
 
             <tr>

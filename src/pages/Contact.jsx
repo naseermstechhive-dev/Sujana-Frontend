@@ -10,7 +10,7 @@ const Contact = () => {
       pincode: "516001"
     },
     contact: {
-      phone: ["6303060488", "9010330078"]
+      phone: ["+91 6303060488"]
     },
     operatingHours: {
       mondayToSaturday: "10:00 AM - 7:00 PM",

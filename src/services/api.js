@@ -1,6 +1,7 @@
-// const API_BASE_URL = 'https://sujana-backend-1.onrender.com/api';
-const API_BASE_URL = 'https://sujana-backend-ruh8.onrender.com/api' 
-// const API_BASE_URL = 'http://localhost:5001/api' 
+// Automatically use localhost in development, Render backend in production
+const API_BASE_URL = import.meta.env.DEV 
+  ? 'http://localhost:5001/api'  // Development - use local backend
+  : 'https://sujana-backend-ruh8.onrender.com/api'; // Production - use Render backend 
 
 const apiRequest = async (endpoint, options = {}) => {
   const url = `${API_BASE_URL}${endpoint}`;
@@ -84,6 +85,11 @@ export const cashAPI = {
 
   resetInitialCash: () =>
     apiRequest('/cash/reset-initial', {
+      method: 'DELETE',
+    }),
+
+  resetAllCash: () =>
+    apiRequest('/cash/reset-all', {
       method: 'DELETE',
     }),
 
