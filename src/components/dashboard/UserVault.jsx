@@ -115,17 +115,28 @@ const UserVault = ({
 
     const comp = company;
     const c = billing.customer;
+    
+    // Handle multiple items or single item - check both goldDetails.items and calculation.items
+    const goldItems = billing.goldDetails?.items && billing.goldDetails.items.length > 0 ? billing.goldDetails.items : null;
+    const calcItems = billing.calculation?.items && billing.calculation.items.length > 0 ? billing.calculation.items : null;
+    const items = goldItems || calcItems;
+    const hasMultipleItems = items && items.length > 0;
+    
+    // For backward compatibility with single item structure
     const r = {
       ...billing.calculation,
       invoiceNo: billing.invoiceNo,
       date: billing.createdAt || billing.date,
-      purityLabel: billing.goldDetails.purityLabel,
-      ornamentType: billing.goldDetails.ornamentType,
-      ornamentCode: billing.goldDetails.ornamentCode,
-      grams: billing.goldDetails.weight,
-      stone: billing.goldDetails.stoneWeight,
-      net: billing.calculation.net,
-      finalPayout: billing.calculation.finalPayout,
+      purityLabel: hasMultipleItems ? items[0]?.purityLabel : (billing.goldDetails?.purityLabel || ''),
+      ornamentType: hasMultipleItems ? items[0]?.ornamentType : (billing.goldDetails?.ornamentType || ''),
+      kdmType: hasMultipleItems ? items[0]?.kdmType : (billing.goldDetails?.kdmType || billing.goldDetails?.ornamentCode || ''),
+      ornamentCode: hasMultipleItems ? items[0]?.kdmType : (billing.goldDetails?.ornamentCode || billing.goldDetails?.kdmType || ''),
+      grams: billing.calculation?.totalGrams || billing.goldDetails?.weight || billing.calculation?.grams || 0,
+      stone: billing.calculation?.totalStone || billing.goldDetails?.stoneWeight || billing.calculation?.stone || 0,
+      net: billing.calculation?.totalNet || billing.calculation?.net || 0,
+      finalPayout: billing.calculation?.editedAmount || billing.calculation?.finalPayout || 0,
+      items: items, // Include items array for multiple items support
+      totalAmount: billing.calculation?.editedAmount || billing.calculation?.finalPayout || 0,
     };
 
     const html = `
@@ -264,31 +275,44 @@ const UserVault = ({
           <table>
             <tr class="center bold">
               <th>ORNAMENT TYPE</th>
-              <th>CODE</th>
+              <th>KDM TYPE</th>
               <th>GROSS WEIGHT</th>
               <th>STONE / WAX</th>
               <th>NET WEIGHT</th>
               <th>PURITY</th>
               <th>GROSS AMOUNT</th>
             </tr>
-
-            <tr class="center">
-              <td>${r.ornamentType}</td>
-              <td>${r.ornamentCode}</td>
-              <td>${r.grams} g</td>
-              <td>${r.stone} g</td>
-              <td>${r.net} g</td>
-              <td>${r.purityLabel}</td>
-              <td>₹ ${Number(r.finalPayout).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
-            </tr>
-
+            ${r.items && r.items.length > 0 
+              ? r.items.map(item => `
+                <tr class="center">
+                  <td>${item.ornamentType || r.ornamentType}</td>
+                  <td>${item.kdmType || item.ornamentCode || r.kdmType || r.ornamentCode}</td>
+                  <td>${parseFloat(item.grams || item.weight || 0).toFixed(3)} g</td>
+                  <td>${parseFloat(item.stone || item.stoneWeight || 0).toFixed(3)} g</td>
+                  <td>${parseFloat(item.net || 0).toFixed(3)} g</td>
+                  <td>${item.purityLabel || r.purityLabel}</td>
+                  <td>₹ ${Number(item.editedAmount || item.finalPayout || item.calculatedAmount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+                </tr>
+              `).join('')
+              : `
+                <tr class="center">
+                  <td>${r.ornamentType}</td>
+                  <td>${r.kdmType || r.ornamentCode}</td>
+                  <td>${parseFloat(r.grams || 0).toFixed(3)} g</td>
+                  <td>${parseFloat(r.stone || 0).toFixed(3)} g</td>
+                  <td>${parseFloat(r.net || 0).toFixed(3)} g</td>
+                  <td>${r.purityLabel}</td>
+                  <td>₹ ${Number(r.finalPayout).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+                </tr>
+              `
+            }
             <tr class="center bold">
               <td colspan="2">GRAND TOTAL</td>
-              <td>${r.grams}</td>
-              <td>${r.stone}</td>
-              <td>${r.net}</td>
+              <td>${parseFloat(r.grams || 0).toFixed(3)}</td>
+              <td>${parseFloat(r.stone || 0).toFixed(3)}</td>
+              <td>${parseFloat(r.net || 0).toFixed(3)}</td>
               <td>-</td>
-              <td>₹ ${Number(r.finalPayout).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+              <td>₹ ${Number(r.finalPayout || r.totalAmount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
             </tr>
           </table>
 
@@ -347,7 +371,7 @@ const UserVault = ({
             <!-- AMOUNT IN WORDS -->
             <table>
               <tr>
-                <td><b>AMOUNT IN WORDS :</b> ${numberToWords(Math.round(r.finalPayout))}</td>
+                <td><b>AMOUNT IN WORDS :</b> ${numberToWords(Math.round(r.finalPayout || r.totalAmount || 0))}</td>
               </tr>
             </table>
           </table>
@@ -452,13 +476,18 @@ const UserVault = ({
                     {billing.customer.name}
                   </td>
                   <td className="border border-gray-300 px-2 md:px-4 py-2 text-xs md:text-sm">
-                    {billing.goldDetails.ornamentType}
+                    {(() => {
+                      const items = billing.goldDetails?.items || billing.calculation?.items || [];
+                      return items.length > 1 
+                        ? `${items.length} items` 
+                        : (items.length === 1 ? items[0]?.ornamentType : (billing.goldDetails?.ornamentType || 'N/A'));
+                    })()}
                   </td>
                   <td className="border border-gray-300 px-2 md:px-4 py-2 text-xs md:text-sm">
-                    {billing.goldDetails.weight}g
+                    {billing.goldDetails?.weight || billing.calculation?.totalGrams || billing.calculation?.grams || 0}g
                   </td>
                   <td className="border border-gray-300 px-2 md:px-4 py-2 font-bold text-xs md:text-sm">
-                    ₹{billing.calculation.finalPayout.toLocaleString('en-IN')}
+                    ₹{(billing.calculation?.editedAmount || billing.calculation?.finalPayout || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                   </td>
                   <td className="border border-gray-300 px-2 md:px-4 py-2 text-center space-x-1 md:space-x-2">
                     <button

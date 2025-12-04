@@ -26,12 +26,19 @@ const Billing = () => {
     address: '',
   });
 
-  // ✅ FIXED
-  const [weight, setWeight] = useState('');
-  const [stoneWeight, setStoneWeight] = useState('');
-  const [purityIndex, setPurityIndex] = useState(0);
-  const [ornamentType, setOrnamentType] = useState('Gold Ornament');
-  const [kdmType, setKdmType] = useState('KDM');
+  // Multiple items support
+  const [items, setItems] = useState([
+    {
+      id: 1,
+      weight: '',
+      stoneWeight: '',
+      purityIndex: 0,
+      ornamentType: 'Gold Ornament',
+      kdmType: 'KDM',
+      calculatedAmount: 0,
+      editedAmount: '',
+    }
+  ]);
 
   // New State for Billing Requirements
   const [billingType, setBillingType] = useState('Physical');
@@ -39,7 +46,7 @@ const Billing = () => {
   const [commissionPercentage, setCommissionPercentage] = useState(2);
   const [commissionAmount, setCommissionAmount] = useState(0);
   const [renewalAmount, setRenewalAmount] = useState(100000); // Default 1 Lakh
-  const [editableAmount, setEditableAmount] = useState(''); // Editable final amount
+  const [editableAmount, setEditableAmount] = useState(''); // Editable final combined amount
 
   // Removed useEffect for auto-calculation
   // useEffect(() => { ... }, [commissionPercentage]);
@@ -69,12 +76,15 @@ const Billing = () => {
   // Update result calculation editedAmount when editableAmount changes
   useEffect(() => {
     if (result && editableAmount) {
-      const newEditedAmount = parseFloat(editableAmount) || result.finalPayout;
+      const parsedAmount = parseFloat(editableAmount) || result.totalAmount;
+      // Round to 2 decimal places
+      const newEditedAmount = Math.round(parsedAmount * 100) / 100;
       const currentEditedAmount = result.calculation?.editedAmount;
       // Only update if the value actually changed to prevent infinite loop
       if (currentEditedAmount !== newEditedAmount && !isNaN(newEditedAmount)) {
         setResult(prev => ({
           ...prev,
+          totalAmount: newEditedAmount,
           calculation: {
             ...prev.calculation,
             editedAmount: newEditedAmount,
@@ -84,6 +94,72 @@ const Billing = () => {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editableAmount]); // Only depend on editableAmount to prevent infinite loop
+
+  // Add new item
+  const addItem = () => {
+    const newId = Math.max(...items.map(i => i.id), 0) + 1;
+    setItems([
+      ...items,
+      {
+        id: newId,
+        weight: '',
+        stoneWeight: '',
+        purityIndex: 0,
+        ornamentType: 'Gold Ornament',
+        kdmType: 'KDM',
+        calculatedAmount: 0,
+        editedAmount: '',
+      }
+    ]);
+  };
+
+  // Remove item
+  const removeItem = (id) => {
+    if (items.length > 1) {
+      setItems(items.filter(item => item.id !== id));
+    } else {
+      alert('At least one item is required');
+    }
+  };
+
+  // Update item field
+  const updateItem = (id, field, value) => {
+    setItems(items.map(item => 
+      item.id === id ? { ...item, [field]: value } : item
+    ));
+  };
+
+  // Update item edited amount
+  const updateItemAmount = (id, value) => {
+    const updatedItems = items.map(item => {
+      if (item.id === id) {
+        const parsed = parseFloat(value) || 0;
+        const rounded = Math.round(parsed * 100) / 100;
+        return { ...item, editedAmount: rounded.toFixed(2) };
+      }
+      return item;
+    });
+    setItems(updatedItems);
+    
+    // Recalculate total using updated items
+    if (result) {
+      const total = updatedItems.reduce((sum, item) => {
+        return sum + parseFloat(item.editedAmount || item.calculatedAmount || 0);
+      }, 0);
+      const totalRounded = Math.round(total * 100) / 100;
+      setEditableAmount(totalRounded.toFixed(2));
+      
+      // Update result total
+      setResult(prev => ({
+        ...prev,
+        totalAmount: totalRounded,
+        calculation: {
+          ...prev.calculation,
+          editedAmount: totalRounded,
+        },
+      }));
+    }
+  };
 
   async function getNextInvoice() {
     try {
@@ -98,15 +174,7 @@ const Billing = () => {
   }
 
   async function calculate() {
-    const grossW = parseFloat(weight || 0);
-    const stoneW = parseFloat(stoneWeight || 0);
-    const netW = grossW - stoneW;
-
-    if (grossW <= 0 || netW <= 0) {
-      setResult(null);
-      return;
-    }
-
+    // Calculate commission for Release type
     let calculatedCommission = 0;
     if (billingType === 'Release') {
       try {
@@ -122,37 +190,77 @@ const Billing = () => {
       }
     }
 
-    const purity = PURITIES[purityIndex];
-    const purityKey = purity.label.split(' ')[0];
+    // Calculate each item
+    const calculatedItems = items.map(item => {
+      const grossW = parseFloat(item.weight || 0);
+      const stoneW = parseFloat(item.stoneWeight || 0);
+      const netW = grossW - stoneW;
 
-    const selectedRate = goldPrices?.[purityKey] || 5000; // fallback if admin not set
+      if (grossW <= 0 || netW <= 0) {
+        return {
+          ...item,
+          calculatedAmount: 0,
+          net: 0,
+          grams: 0,
+          stone: 0,
+          purityLabel: '',
+          selectedRatePerGram: 0,
+        };
+      }
 
-    const gross = netW * selectedRate;
-    const deduction = netW * DEDUCTION_PER_GRAM;
-    const finalPayout = Math.max(0, gross - deduction);
+      const purity = PURITIES[item.purityIndex];
+      const purityKey = purity.label.split(' ')[0];
+      const selectedRate = goldPrices?.[purityKey] || 5000;
+
+      const gross = netW * selectedRate;
+      const deduction = netW * DEDUCTION_PER_GRAM;
+      const finalPayout = Math.max(0, gross - deduction);
+      const finalPayoutRounded = Math.round(finalPayout * 100) / 100;
+
+      return {
+        ...item,
+        calculatedAmount: finalPayoutRounded,
+        editedAmount: item.editedAmount || finalPayoutRounded.toFixed(2),
+        net: netW,
+        grams: grossW,
+        stone: stoneW,
+        purityLabel: purity.label,
+        selectedRatePerGram: selectedRate,
+      };
+    });
+
+    // Check if at least one item is valid
+    const validItems = calculatedItems.filter(item => item.grams > 0);
+    if (validItems.length === 0) {
+      setResult(null);
+      return;
+    }
+
+    // Calculate total combined amount
+    const totalAmount = calculatedItems.reduce((sum, item) => {
+      const amount = parseFloat(item.editedAmount || item.calculatedAmount || 0);
+      return sum + amount;
+    }, 0);
+    const totalAmountRounded = Math.round(totalAmount * 100) / 100;
+
+    // Update items with calculated values
+    setItems(calculatedItems);
 
     const currentInvoiceNo = result?.invoiceNo || await getNextInvoice();
 
     setResult({
-      purityLabel: purity.label,
-      selectedRatePerGram: selectedRate,
-      grams: grossW,
-      stone: stoneW,
-      net: netW,
-      finalPayout,
+      items: calculatedItems,
+      totalAmount: totalAmountRounded,
       date: new Date(),
       invoiceNo: currentInvoiceNo,
-      ornamentType,
-          kdmType,
-      // Add commission to result for display/invoice
       commissionAmount: calculatedCommission,
       calculation: {
-        editedAmount: finalPayout, // Initially set to calculated amount
+        editedAmount: totalAmountRounded,
       },
     });
 
-    // Set editable amount to the calculated final payout
-    setEditableAmount(finalPayout.toString());
+    // Set editable amount to the calculated total (formatted to 2 decimal places)
+    setEditableAmount(totalAmountRounded.toFixed(2));
   }
 
   // Photo handling functions
@@ -193,11 +301,7 @@ const Billing = () => {
       bankName,
       renewalAmount,
       commissionPercentage,
-      weight,
-      stoneWeight,
-      purityIndex,
-      ornamentType,
-      kdmType,
+      items,
       customerPhoto: photoPreview,
       editableAmount,
     });
@@ -213,11 +317,7 @@ const Billing = () => {
       bankName,
       renewalAmount,
       commissionPercentage,
-      weight,
-      stoneWeight,
-      purityIndex,
-      ornamentType,
-      kdmType,
+      items,
       customerPhoto: photoPreview,
       editableAmount,
     };
@@ -302,23 +402,56 @@ const Billing = () => {
 
     setIsSubmitting(true);
     try {
+      // Prepare items data for backend
+      const itemsData = result.items.map(item => ({
+        weight: parseFloat(item.weight),
+        stoneWeight: parseFloat(item.stoneWeight),
+        purityIndex: item.purityIndex,
+        purityLabel: item.purityLabel,
+        ornamentType: item.ornamentType,
+        kdmType: item.kdmType,
+        selectedRatePerGram: item.selectedRatePerGram,
+        grams: item.grams,
+        stone: item.stone,
+        net: item.net,
+        finalPayout: item.calculatedAmount,
+        editedAmount: parseFloat(item.editedAmount) || item.calculatedAmount,
+      }));
+
+      // Calculate totals
+      const totalGrams = itemsData.reduce((sum, item) => sum + item.grams, 0);
+      const totalStone = itemsData.reduce((sum, item) => sum + item.stone, 0);
+      const totalNet = itemsData.reduce((sum, item) => sum + item.net, 0);
+      
+      // For backward compatibility, use first item's rate or calculate weighted average
+      const firstItem = itemsData[0];
+      const selectedRatePerGram = firstItem?.selectedRatePerGram || 5000;
+
       const billingData = {
         customer,
         goldDetails: {
-          weight: parseFloat(weight),
-          stoneWeight: parseFloat(stoneWeight),
-          purityIndex,
-          purityLabel: result.purityLabel,
-          ornamentType,
-          kdmType,
+          items: itemsData,
+          // Keep backward compatibility - use totals for single item fields
+          weight: totalGrams,
+          stoneWeight: totalStone,
+          purityIndex: itemsData[0]?.purityIndex || 0,
+          purityLabel: itemsData[0]?.purityLabel || '',
+          ornamentType: itemsData[0]?.ornamentType || 'Gold Ornament',
+          kdmType: itemsData[0]?.kdmType || 'KDM',
         },
         calculation: {
-          selectedRatePerGram: result.selectedRatePerGram,
-          grams: result.grams,
-          stone: result.stone,
-          net: result.net,
-          finalPayout: result.finalPayout,
-          editedAmount: parseFloat(editableAmount) || result.finalPayout,
+          // Required fields for backward compatibility
+          selectedRatePerGram: selectedRatePerGram,
+          grams: totalGrams,
+          stone: totalStone,
+          net: totalNet,
+          finalPayout: result.totalAmount,
+          editedAmount: parseFloat(editableAmount) || result.totalAmount,
+          // Additional fields for multiple items support
+          items: itemsData,
+          totalGrams,
+          totalStone,
+          totalNet,
         },
         invoiceNo: result.invoiceNo,
         billingType,
@@ -338,11 +471,7 @@ const Billing = () => {
         bankName,
         renewalAmount,
         commissionPercentage,
-        weight,
-        stoneWeight,
-        purityIndex,
-        ornamentType,
-          kdmType,
+        items,
         customerPhoto: photoPreview,
         editableAmount,
       });
@@ -396,22 +525,24 @@ const Billing = () => {
       newErrors.address = 'Address must be at least 10 characters';
     }
 
-    // Gold details validation
-    if (!weight || parseFloat(weight) <= 0) {
-      newErrors.weight = 'Gross weight must be greater than 0';
-    }
+    // Gold details validation for all items
+    items.forEach((item, index) => {
+      if (!item.weight || parseFloat(item.weight) <= 0) {
+        newErrors[`weight_${item.id}`] = `Item ${index + 1}: Gross weight must be greater than 0`;
+      }
 
-    if (parseFloat(stoneWeight || 0) >= parseFloat(weight || 0)) {
-      newErrors.stoneWeight = 'Stone weight cannot be greater than or equal to gross weight';
-    }
+      if (parseFloat(item.stoneWeight || 0) >= parseFloat(item.weight || 0)) {
+        newErrors[`stoneWeight_${item.id}`] = `Item ${index + 1}: Stone weight cannot be greater than or equal to gross weight`;
+      }
 
-    if (!ornamentType.trim()) {
-      newErrors.ornamentType = 'Ornament type is required';
-    }
+      if (!item.ornamentType.trim()) {
+        newErrors[`ornamentType_${item.id}`] = `Item ${index + 1}: Ornament type is required`;
+      }
 
-    if (!kdmType) {
-      newErrors.kdmType = 'KDM type is required';
-    }
+      if (!item.kdmType) {
+        newErrors[`kdmType_${item.id}`] = `Item ${index + 1}: KDM type is required`;
+      }
+    });
 
     // Billing type specific validations
     if (billingType === 'Release' || billingType === 'TakeOver') {
@@ -446,12 +577,19 @@ const Billing = () => {
       address: '',
     });
 
-    // Reset gold details
-    setWeight('');
-    setStoneWeight('');
-    setPurityIndex(0);
-    setOrnamentType('Gold Ornament');
-    setKdmType('KDM');
+    // Reset items to single empty item
+    setItems([
+      {
+        id: 1,
+        weight: '',
+        stoneWeight: '',
+        purityIndex: 0,
+        ornamentType: 'Gold Ornament',
+        kdmType: 'KDM',
+        calculatedAmount: 0,
+        editedAmount: '',
+      }
+    ]);
 
     // Reset billing details
     setBillingType('Physical');
@@ -594,36 +732,84 @@ const Billing = () => {
   `;
 
   // Common items table
-  const getItemsTable = (r) => `
-    <table>
-      <tr class="center bold">
-        <th>ORNAMENT TYPE</th>
-        <th>KDM TYPE</th>
-        <th>GROSS WEIGHT</th>
-        <th>STONE / WAX</th>
-        <th>NET WEIGHT</th>
-        <th>PURITY</th>
-        <th>GROSS AMOUNT</th>
-      </tr>
+  const getItemsTable = (r) => {
+    const items = r.items || [];
+    // Backward compatibility: if no items array, use single item format
+    if (items.length === 0 && r.ornamentType) {
+      return `
+        <table>
+          <tr class="center bold">
+            <th>ORNAMENT TYPE</th>
+            <th>KDM TYPE</th>
+            <th>GROSS WEIGHT</th>
+            <th>STONE / WAX</th>
+            <th>NET WEIGHT</th>
+            <th>PURITY</th>
+            <th>GROSS AMOUNT</th>
+          </tr>
+          <tr class="center">
+            <td>${r.ornamentType}</td>
+            <td>${r.kdmType}</td>
+            <td>${parseFloat(r.grams || 0).toFixed(3)} g</td>
+            <td>${parseFloat(r.stone || 0).toFixed(3)} g</td>
+            <td>${parseFloat(r.net || 0).toFixed(3)} g</td>
+            <td>${r.purityLabel}</td>
+            <td>₹ ${Number(r.calculation?.editedAmount || r.finalPayout).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+          </tr>
+          <tr class="center bold">
+            <td colspan="2">GRAND TOTAL</td>
+            <td>${parseFloat(r.grams || 0).toFixed(3)}</td>
+            <td>${parseFloat(r.stone || 0).toFixed(3)}</td>
+            <td>${parseFloat(r.net || 0).toFixed(3)}</td>
+            <td>-</td>
+            <td>₹ ${Number(r.calculation?.editedAmount || r.finalPayout).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+          </tr>
+        </table>
+      `;
+    }
+
+    // Calculate totals
+    const totalGrams = items.reduce((sum, item) => sum + parseFloat(item.grams || 0), 0);
+    const totalStone = items.reduce((sum, item) => sum + parseFloat(item.stone || 0), 0);
+    const totalNet = items.reduce((sum, item) => sum + parseFloat(item.net || 0), 0);
+    const totalAmount = r.totalAmount || r.calculation?.editedAmount || r.finalPayout || 0;
+
+    // Generate rows for each item
+    const itemRows = items.map(item => `
       <tr class="center">
-        <td>${r.ornamentType}</td>
-        <td>${r.kdmType}</td>
-        <td>${parseFloat(r.grams || 0).toFixed(3)} g</td>
-        <td>${parseFloat(r.stone || 0).toFixed(3)} g</td>
-        <td>${parseFloat(r.net || 0).toFixed(3)} g</td>
-        <td>${r.purityLabel}</td>
-        <td>₹ ${Number(r.calculation?.editedAmount || r.finalPayout).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+        <td>${item.ornamentType}</td>
+        <td>${item.kdmType}</td>
+        <td>${parseFloat(item.grams || 0).toFixed(3)} g</td>
+        <td>${parseFloat(item.stone || 0).toFixed(3)} g</td>
+        <td>${parseFloat(item.net || 0).toFixed(3)} g</td>
+        <td>${item.purityLabel}</td>
+        <td>₹ ${Number(item.editedAmount || item.calculatedAmount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
       </tr>
-      <tr class="center bold">
-        <td colspan="2">GRAND TOTAL</td>
-        <td>${parseFloat(r.grams || 0).toFixed(3)}</td>
-        <td>${parseFloat(r.stone || 0).toFixed(3)}</td>
-        <td>${parseFloat(r.net || 0).toFixed(3)}</td>
-        <td>-</td>
-        <td>₹ ${Number(r.calculation?.editedAmount || r.finalPayout).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
-      </tr>
-    </table>
-  `;
+    `).join('');
+
+    return `
+      <table>
+        <tr class="center bold">
+          <th>ORNAMENT TYPE</th>
+          <th>KDM TYPE</th>
+          <th>GROSS WEIGHT</th>
+          <th>STONE / WAX</th>
+          <th>NET WEIGHT</th>
+          <th>PURITY</th>
+          <th>GROSS AMOUNT</th>
+        </tr>
+        ${itemRows}
+        <tr class="center bold">
+          <td colspan="2">GRAND TOTAL</td>
+          <td>${totalGrams.toFixed(3)}</td>
+          <td>${totalStone.toFixed(3)}</td>
+          <td>${totalNet.toFixed(3)}</td>
+          <td>-</td>
+          <td>₹ ${Number(totalAmount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+        </tr>
+      </table>
+    `;
+  };
 
   // Common terms and signatures
   const getTermsAndSignatures = (r) => `
@@ -674,7 +860,7 @@ const Billing = () => {
         </td>
       </tr>
       <tr>
-        <td colspan="2"><b>AMOUNT IN WORDS :</b> ${numberToWords(Math.round(r.calculation?.editedAmount || r.finalPayout))}</td>
+        <td colspan="2"><b>AMOUNT IN WORDS :</b> ${numberToWords(Math.round(r.totalAmount || r.calculation?.editedAmount || r.finalPayout || 0))}</td>
       </tr>
     </table>
   `;
@@ -1005,128 +1191,186 @@ const Billing = () => {
                 </div>
               )}
 
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Ornament Type *
-                  </label>
-                  <input
-                    type="text"
-                    value={ornamentType}
-                    onChange={(e) => {
-                      setOrnamentType(e.target.value);
-                      if (errors.ornamentType) {
-                        setErrors({ ...errors, ornamentType: '' });
-                      }
-                    }}
-                    className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:border-transparent ${
-                      errors.ornamentType
-                        ? 'border-red-500 focus:ring-red-400'
-                        : 'border-gray-300 focus:ring-yellow-400'
-                    }`}
-                    placeholder="e.g. Chain, Ring"
-                  />
-                  {errors.ornamentType && (
-                    <p className="text-red-500 text-xs mt-1">{errors.ornamentType}</p>
-                  )}
-                </div>
+              {/* Multiple Items Section */}
+              <div className="space-y-4">
+                {items.map((item, index) => (
+                  <div key={item.id} className="p-4 border-2 border-gray-200 rounded-lg bg-gray-50">
+                    <div className="flex justify-between items-center mb-4">
+                      <h5 className="text-lg font-semibold text-gray-700">Item {index + 1}</h5>
+                      {items.length > 1 && (
+                        <button
+                          onClick={() => removeItem(item.id)}
+                          className="px-3 py-1 bg-red-500 hover:bg-red-600 text-white rounded-md text-sm font-medium transition"
+                        >
+                          Remove
+                        </button>
+                      )}
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          Ornament Type *
+                        </label>
+                        <input
+                          type="text"
+                          value={item.ornamentType}
+                          onChange={(e) => {
+                            updateItem(item.id, 'ornamentType', e.target.value);
+                            if (errors[`ornamentType_${item.id}`]) {
+                              setErrors({ ...errors, [`ornamentType_${item.id}`]: '' });
+                            }
+                          }}
+                          className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:border-transparent ${
+                            errors[`ornamentType_${item.id}`]
+                              ? 'border-red-500 focus:ring-red-400'
+                              : 'border-gray-300 focus:ring-yellow-400'
+                          }`}
+                          placeholder="e.g. Chain, Ring"
+                        />
+                        {errors[`ornamentType_${item.id}`] && (
+                          <p className="text-red-500 text-xs mt-1">{errors[`ornamentType_${item.id}`]}</p>
+                        )}
+                      </div>
 
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    KDM Type *
-                  </label>
-                  <select
-                    value={kdmType}
-                    onChange={(e) => {
-                      setKdmType(e.target.value);
-                      if (errors.kdmType) {
-                        setErrors({ ...errors, kdmType: '' });
-                      }
-                    }}
-                    className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:border-transparent ${
-                      errors.kdmType
-                        ? 'border-red-500 focus:ring-red-400'
-                        : 'border-gray-300 focus:ring-yellow-400'
-                    }`}
-                  >
-                    <option value="KDM">KDM</option>
-                    <option value="Non KDM">Non KDM</option>
-                  </select>
-                  {errors.kdmType && (
-                    <p className="text-red-500 text-xs mt-1">{errors.kdmType}</p>
-                  )}
-                </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          KDM Type *
+                        </label>
+                        <select
+                          value={item.kdmType}
+                          onChange={(e) => {
+                            updateItem(item.id, 'kdmType', e.target.value);
+                            if (errors[`kdmType_${item.id}`]) {
+                              setErrors({ ...errors, [`kdmType_${item.id}`]: '' });
+                            }
+                          }}
+                          className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:border-transparent ${
+                            errors[`kdmType_${item.id}`]
+                              ? 'border-red-500 focus:ring-red-400'
+                              : 'border-gray-300 focus:ring-yellow-400'
+                          }`}
+                        >
+                          <option value="KDM">KDM</option>
+                          <option value="Non KDM">Non KDM</option>
+                        </select>
+                        {errors[`kdmType_${item.id}`] && (
+                          <p className="text-red-500 text-xs mt-1">{errors[`kdmType_${item.id}`]}</p>
+                        )}
+                      </div>
 
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Gross Weight (g) *
-                  </label>
-                  <input
-                    type="number"
-                    value={weight}
-                    onChange={(e) => {
-                      setWeight(e.target.value);
-                      if (errors.weight) {
-                        setErrors({ ...errors, weight: '' });
-                      }
-                    }}
-                    className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:border-transparent ${
-                      errors.weight
-                        ? 'border-red-500 focus:ring-red-400'
-                        : 'border-gray-300 focus:ring-yellow-400'
-                    }`}
-                    placeholder="0.00"
-                    step="0.001"
-                    min="0"
-                  />
-                  {errors.weight && (
-                    <p className="text-red-500 text-xs mt-1">{errors.weight}</p>
-                  )}
-                </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          Gross Weight (g) *
+                        </label>
+                        <input
+                          type="number"
+                          value={item.weight}
+                          onChange={(e) => {
+                            updateItem(item.id, 'weight', e.target.value);
+                            if (errors[`weight_${item.id}`]) {
+                              setErrors({ ...errors, [`weight_${item.id}`]: '' });
+                            }
+                          }}
+                          className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:border-transparent ${
+                            errors[`weight_${item.id}`]
+                              ? 'border-red-500 focus:ring-red-400'
+                              : 'border-gray-300 focus:ring-yellow-400'
+                          }`}
+                          placeholder="0.00"
+                          step="0.001"
+                          min="0"
+                        />
+                        {errors[`weight_${item.id}`] && (
+                          <p className="text-red-500 text-xs mt-1">{errors[`weight_${item.id}`]}</p>
+                        )}
+                      </div>
 
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Stone Weight (g)
-                  </label>
-                  <input
-                    type="number"
-                    value={stoneWeight}
-                    onChange={(e) => {
-                      setStoneWeight(e.target.value);
-                      if (errors.stoneWeight) {
-                        setErrors({ ...errors, stoneWeight: '' });
-                      }
-                    }}
-                    className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:border-transparent ${
-                      errors.stoneWeight
-                        ? 'border-red-500 focus:ring-red-400'
-                        : 'border-gray-300 focus:ring-yellow-400'
-                    }`}
-                    placeholder="0.00"
-                    step="0.001"
-                    min="0"
-                  />
-                  {errors.stoneWeight && (
-                    <p className="text-red-500 text-xs mt-1">{errors.stoneWeight}</p>
-                  )}
-                </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          Stone Weight (g)
+                        </label>
+                        <input
+                          type="number"
+                          value={item.stoneWeight}
+                          onChange={(e) => {
+                            updateItem(item.id, 'stoneWeight', e.target.value);
+                            if (errors[`stoneWeight_${item.id}`]) {
+                              setErrors({ ...errors, [`stoneWeight_${item.id}`]: '' });
+                            }
+                          }}
+                          className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:border-transparent ${
+                            errors[`stoneWeight_${item.id}`]
+                              ? 'border-red-500 focus:ring-red-400'
+                              : 'border-gray-300 focus:ring-yellow-400'
+                          }`}
+                          placeholder="0.00"
+                          step="0.001"
+                          min="0"
+                        />
+                        {errors[`stoneWeight_${item.id}`] && (
+                          <p className="text-red-500 text-xs mt-1">{errors[`stoneWeight_${item.id}`]}</p>
+                        )}
+                      </div>
 
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Purity
-                  </label>
-                  <select
-                    value={purityIndex}
-                    onChange={(e) => setPurityIndex(Number(e.target.value))}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-yellow-400 focus:border-yellow-400"
-                  >
-                    {PURITIES.map((p, i) => (
-                      <option value={i} key={i}>
-                        {p.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          Purity
+                        </label>
+                        <select
+                          value={item.purityIndex}
+                          onChange={(e) => updateItem(item.id, 'purityIndex', Number(e.target.value))}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-yellow-400 focus:border-yellow-400"
+                        >
+                          {PURITIES.map((p, i) => (
+                            <option value={i} key={i}>
+                              {p.label}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      {result && result.items && result.items.find(i => i.id === item.id) && (
+                        <div className="md:col-span-3">
+                          <div className="p-3 bg-green-50 border border-green-200 rounded-md">
+                            <div className="flex justify-between items-center">
+                              <span className="text-sm font-medium text-gray-700">Calculated Amount:</span>
+                              <span className="text-lg font-bold text-green-600">
+                                ₹ {parseFloat(result.items.find(i => i.id === item.id)?.calculatedAmount || 0).toFixed(2)}
+                              </span>
+                            </div>
+                            <div className="mt-2">
+                              <label className="block text-xs font-medium text-gray-600 mb-1">
+                                Edit Amount (Optional)
+                              </label>
+                              <input
+                                type="number"
+                                value={item.editedAmount || ''}
+                                onChange={(e) => updateItemAmount(item.id, e.target.value)}
+                                onBlur={(e) => {
+                                  const value = parseFloat(e.target.value);
+                                  if (!isNaN(value)) {
+                                    updateItemAmount(item.id, value);
+                                  }
+                                }}
+                                className="w-full px-2 py-1 border border-green-300 rounded text-sm"
+                                step="0.01"
+                                min="0"
+                                placeholder="0.00"
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+
+                <button
+                  onClick={addItem}
+                  className="w-full py-2 bg-blue-500 hover:bg-blue-600 text-white font-medium rounded-lg transition duration-300"
+                >
+                  + Add Another Item
+                </button>
               </div>
 
               <div className="mt-4">
@@ -1141,7 +1385,7 @@ const Billing = () => {
               {result && (
                 <div className="mt-4 p-4 bg-gradient-to-r from-green-50 to-green-100 border-2 border-green-300 rounded-lg">
                   <div className="text-sm text-gray-600 mb-2 text-center">
-                    Final Payout Amount (Editable)
+                    Combined Final Payout Amount (Editable)
                   </div>
                   <div className="flex items-center justify-center">
                     <span className="text-2xl font-bold text-green-600 mr-2">₹</span>
@@ -1149,11 +1393,21 @@ const Billing = () => {
                       type="number"
                       value={editableAmount}
                       onChange={(e) => setEditableAmount(e.target.value)}
+                      onBlur={(e) => {
+                        const value = parseFloat(e.target.value);
+                        if (!isNaN(value)) {
+                          const rounded = Math.round(value * 100) / 100;
+                          setEditableAmount(rounded.toFixed(2));
+                        }
+                      }}
                       className="text-3xl font-bold text-green-600 bg-transparent border-b-2 border-green-400 focus:outline-none focus:border-green-600 text-center w-48"
                       step="0.01"
                       min="0"
                       placeholder="0.00"
                     />
+                  </div>
+                  <div className="text-xs text-gray-500 text-center mt-2">
+                    Total of {result.items?.length || 0} item(s)
                   </div>
                 </div>
               )}
