@@ -434,6 +434,50 @@ const Billing = () => {
     setErrors({});
   };
 
+  // Reset/Clear form function
+  const resetForm = () => {
+    // Reset customer details
+    setCustomer({
+      name: '',
+      mobile: '',
+      aadhar: '',
+      pan: '',
+      gender: '',
+      address: '',
+    });
+
+    // Reset gold details
+    setWeight('');
+    setStoneWeight('');
+    setPurityIndex(0);
+    setOrnamentType('Gold Ornament');
+    setKdmType('KDM');
+
+    // Reset billing details
+    setBillingType('Physical');
+    setBankName('');
+    setCommissionPercentage(2);
+    setCommissionAmount(0);
+    setRenewalAmount(100000);
+    setEditableAmount('');
+
+    // Reset calculation result
+    setResult(null);
+
+    // Reset errors
+    setErrors({});
+
+    // Reset billing saved status
+    setIsBillingSaved(false);
+
+    // Reset photo
+    setCustomerPhoto(null);
+    setPhotoPreview(null);
+
+    // Reset initial form data
+    setInitialFormData(null);
+  };
+
   // Removed generateInvoiceNo using localStorage
   // function generateInvoiceNo() { ... }
 
@@ -564,17 +608,17 @@ const Billing = () => {
       <tr class="center">
         <td>${r.ornamentType}</td>
         <td>${r.kdmType}</td>
-        <td>${r.grams} g</td>
-        <td>${r.stone} g</td>
-        <td>${r.net} g</td>
+        <td>${parseFloat(r.grams || 0).toFixed(3)} g</td>
+        <td>${parseFloat(r.stone || 0).toFixed(3)} g</td>
+        <td>${parseFloat(r.net || 0).toFixed(3)} g</td>
         <td>${r.purityLabel}</td>
         <td>₹ ${Number(r.calculation?.editedAmount || r.finalPayout).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
       </tr>
       <tr class="center bold">
         <td colspan="2">GRAND TOTAL</td>
-        <td>${r.grams}</td>
-        <td>${r.stone}</td>
-        <td>${r.net}</td>
+        <td>${parseFloat(r.grams || 0).toFixed(3)}</td>
+        <td>${parseFloat(r.stone || 0).toFixed(3)}</td>
+        <td>${parseFloat(r.net || 0).toFixed(3)}</td>
         <td>-</td>
         <td>₹ ${Number(r.calculation?.editedAmount || r.finalPayout).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
       </tr>
@@ -1378,7 +1422,7 @@ const Billing = () => {
                   🖨️ Print Invoice
                 </button>
                 <button
-                  onClick={() => setShowForm(false)}
+                  onClick={resetForm}
                   disabled={isSubmitting}
                   className={`flex-1 font-bold py-3 px-6 rounded-lg transition duration-300 ${
                     isSubmitting
@@ -1386,7 +1430,7 @@ const Billing = () => {
                       : 'bg-gray-500 hover:bg-gray-600 text-white'
                   }`}
                 >
-                  Cancel
+                  Clear Form
                 </button>
               </div>
             </div>
