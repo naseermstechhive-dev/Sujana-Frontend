@@ -323,20 +323,20 @@ const UserVault = ({
               <td style="width:65%; vertical-align:top; padding:10px;">
                 <div class="bold center">TERMS & CONDITIONS</div>
                 <div style="font-size:13px; line-height:1.4;">
-                  1. Ornaments once purchased shall not be returned under any circumstances. <br>
-                  2. If any losses are arising out of this purchase, then you are liable to settle full amount. <br>
-                  3. Selling stolen gold, silver or fake gold is a criminal offence; if found will be reported. <br>
-                  4. You declare full ownership of the ornaments sold & indemnify Sujana Gold Company. <br>
-                  5. Check cash before leaving the counter; no claims accepted afterward.
+                  1. Ornaments once purchased shall not be returned under any circumstances. <br><br>
+                  2. If any losses are arising out of this purchase, then you are liable to settle full amount. <br><br>
+                  3. Selling stolen gold, silver or fake gold is a criminal offence, if found will be reported to authorities. <br><br>
+                  4. Ornaments were purchased from you based on the declaration that you hold the ownership and saleable title on the ornaments and you completely agree to indemnify Sujana Gold and its employees from any further claim arising out of dispute or due to any criminal liabilities framed against you. <br><br>
+                  5. Kindly ensure the correctness of cash before leaving the counter, No claims for shortfall will be entertained thereafter.
                 </div>
                 <br>
                 <div class="bold center">షరతులు మరియు నిబంధనలు</div>
                 <div style="font-size:13px; line-height:1.6;">
-                  1. ఒకసారి కొనుగోలు చేసిన ఆభరణాలు తిరిగి స్వీకరించబడవు. <br>
-                  2. ఈ కొనుగోలుతో సంబంధిత నష్టాలకు మీరు బాధ్యత వహించాలి. <br>
-                  3. నకిలీ లేదా దొంగతనం చేసిన బంగారం అమ్మడం నేరం. <br>
-                  4. అమ్మిన ఆభరణాల యాజమాన్యం మీదే అని మీరు ప్రకటిస్తున్నారు. <br>
-                  5. కౌంటర్ వదిలే ముందు నగదు సరిచూసుకోండి.
+                  1. ఒకసారి కొనుగోలు చేసిన ఆభరణాలను ఎట్టి పరిస్థితుల్లోనూ తిరిగి ఇవ్వబడదు. <br><br>
+                  2. మీ కొనుగోలుతో ఏవైనా నష్టం జరిగితే, మీరు మొత్తం మొత్తాన్ని చెల్లించాల్సి ఉంటుంది. <br><br>
+                  3. దొంగతనం చేసిన బంగారం, వెండి లేదా నకిలీ బంగారం అమ్మడం క్రిమినల్ నేరం. ఇది బయటపడిన పక్షంలో పోలీసులకు సమాచారం ఇవ్వబడుతుంది. <br><br>
+                  4. మీరు బంగారం అమ్మినప్పుడు, మీకు ఆ ఆభరణాల యజమాన్యం ఉందని మరియు అమ్మే హక్కు ఉందని మీరు ప్రకటించినట్టుగా భావిస్తాము. ఏవైనా వివాదాలు లేదా క్రిమినల్ కేసులు వస్తే, సుజనా గోల్డ్ మరియు దాని ఉద్యోగులను మీరు పూర్తిగా బాధ్యతల నుంచి విముక్తులు చేయాలి. <br><br>
+                  5. కౌంటర్‌ను వదిలి వెళ్లే ముందు మీరు పొందిన నగదును పరీక్షించుకోండి. తర్వాత ఏవైనా తక్కువ వచ్చినట్లయితే దాని గురించి అభ్యర్థనలు అంగీకరించబడవు.
                 </div>
               </td>
 
