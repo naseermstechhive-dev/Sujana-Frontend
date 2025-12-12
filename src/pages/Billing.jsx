@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useAdmin } from '../contexts/AdminContext';
 import { numberToWords } from '../utils/numberUtils';
 import { billingAPI } from '../services/api';
+import html2pdf from 'html2pdf.js';
 
 const PURITIES = [
   { label: '24K — 100%', multiplier: 1.0 },
@@ -58,6 +59,8 @@ const Billing = () => {
   const [initialFormData, setInitialFormData] = useState(null);
   const [customerPhoto, setCustomerPhoto] = useState(null);
   const [photoPreview, setPhotoPreview] = useState(null);
+  const [customerSignature, setCustomerSignature] = useState(null);
+  const [signaturePreview, setSignaturePreview] = useState(null);
 
   // load company data
   useEffect(() => {
@@ -263,8 +266,61 @@ const Billing = () => {
     setEditableAmount(totalAmountRounded.toFixed(2));
   }
 
+  // Image compression function
+  const compressImage = (file, maxWidth = 800, maxHeight = 800, quality = 0.7) => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          let width = img.width;
+          let height = img.height;
+
+          // Calculate new dimensions
+          if (width > height) {
+            if (width > maxWidth) {
+              height = (height * maxWidth) / width;
+              width = maxWidth;
+            }
+          } else {
+            if (height > maxHeight) {
+              width = (width * maxHeight) / height;
+              height = maxHeight;
+            }
+          }
+
+          canvas.width = width;
+          canvas.height = height;
+
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, width, height);
+
+          canvas.toBlob(
+            (blob) => {
+              if (blob) {
+                const reader = new FileReader();
+                reader.onload = () => resolve(reader.result);
+                reader.onerror = reject;
+                reader.readAsDataURL(blob);
+              } else {
+                reject(new Error('Failed to compress image'));
+              }
+            },
+            'image/jpeg',
+            quality
+          );
+        };
+        img.onerror = reject;
+        img.src = e.target.result;
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  };
+
   // Photo handling functions
-  const handlePhotoCapture = (event) => {
+  const handlePhotoCapture = async (event) => {
     const file = event.target.files[0];
     if (file) {
       // Validate file type
@@ -279,18 +335,66 @@ const Billing = () => {
         return;
       }
 
-      const reader = new FileReader();
-      reader.onload = (e) => {
+      try {
+        // Compress image before storing
+        const compressedDataUrl = await compressImage(file, 800, 800, 0.7);
         setCustomerPhoto(file);
-        setPhotoPreview(e.target.result);
-      };
-      reader.readAsDataURL(file);
+        setPhotoPreview(compressedDataUrl);
+      } catch (error) {
+        console.error('Error compressing image:', error);
+        // Fallback to original if compression fails
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          setCustomerPhoto(file);
+          setPhotoPreview(e.target.result);
+        };
+        reader.readAsDataURL(file);
+      }
     }
   };
 
   const removePhoto = () => {
     setCustomerPhoto(null);
     setPhotoPreview(null);
+  };
+
+  // Signature handling functions
+  const handleSignatureCapture = async (event) => {
+    const file = event.target.files[0];
+    if (file) {
+      // Validate file type
+      if (!file.type.startsWith('image/')) {
+        alert('Please select a valid image file');
+        return;
+      }
+
+      // Validate file size (max 2MB)
+      if (file.size > 2 * 1024 * 1024) {
+        alert('Signature size should be less than 2MB');
+        return;
+      }
+
+      try {
+        // Compress signature image (smaller dimensions for signature)
+        const compressedDataUrl = await compressImage(file, 600, 300, 0.8);
+        setCustomerSignature(file);
+        setSignaturePreview(compressedDataUrl);
+      } catch (error) {
+        console.error('Error compressing signature:', error);
+        // Fallback to original if compression fails
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          setCustomerSignature(file);
+          setSignaturePreview(e.target.result);
+        };
+        reader.readAsDataURL(file);
+      }
+    }
+  };
+
+  const removeSignature = () => {
+    setCustomerSignature(null);
+    setSignaturePreview(null);
   };
 
   // Initialize form data tracking
@@ -303,6 +407,7 @@ const Billing = () => {
       commissionPercentage,
       items,
       customerPhoto: photoPreview,
+      customerSignature: signaturePreview,
       editableAmount,
     });
   }, []);
@@ -319,6 +424,7 @@ const Billing = () => {
       commissionPercentage,
       items,
       customerPhoto: photoPreview,
+      customerSignature: signaturePreview,
       editableAmount,
     };
 
@@ -458,6 +564,8 @@ const Billing = () => {
         bankName: billingType !== 'Physical' ? bankName : undefined,
         commissionPercentage: billingType === 'Release' ? commissionPercentage : undefined,
         commissionAmount: billingType === 'Release' ? commissionAmount : undefined,
+        customerPhoto: photoPreview, // Save customer photo
+        customerSignature: signaturePreview, // Save customer signature
       };
 
       await billingAPI.createBilling(billingData);
@@ -473,6 +581,7 @@ const Billing = () => {
         commissionPercentage,
         items,
         customerPhoto: photoPreview,
+        customerSignature: signaturePreview,
         editableAmount,
       });
 
@@ -611,6 +720,14 @@ const Billing = () => {
     // Reset photo
     setCustomerPhoto(null);
     setPhotoPreview(null);
+    
+    // Reset signature
+    setCustomerSignature(null);
+    setSignaturePreview(null);
+    
+    // Reset signature
+    setCustomerSignature(null);
+    setSignaturePreview(null);
 
     // Reset initial form data
     setInitialFormData(null);
@@ -663,7 +780,7 @@ const Billing = () => {
       <tr>
         <td class="center" colspan="3">
           <div class="logo">
-            <img src="/images/${comp.logoFile}" alt="${comp.companyName}" />
+            <img src="/images/${comp.logoFile}" alt="${comp.companyName}" style="width: 80px; height: 60px; object-fit: contain; max-width: 80px; max-height: 60px;" />
           </div>
           <div class="bold" style="font-size:24px; margin-top:5px;">
             ${comp.companyName}
@@ -812,7 +929,7 @@ const Billing = () => {
   };
 
   // Common terms and signatures
-  const getTermsAndSignatures = (r) => `
+  const getTermsAndSignatures = (r, signaturePreview) => `
     <table class="terms-signatures">
       <tr>
         <td style="width:65%; vertical-align:top; padding:8px;">
@@ -840,8 +957,8 @@ const Billing = () => {
                 <div style="position:absolute; bottom:8px; left:50%; transform:translateX(-50%); font-size:13px;">
                   CUSTOMER SIGNATURE
                 </div>
-                <div style="height: 70%; display:flex; align-items:center; justify-content:center; font-size:11px; color:#666; margin-bottom:20px;">
-                  Please sign here
+                <div style="height: 70%; display:flex; align-items:center; justify-content:center; margin-bottom:20px; padding:5px;">
+                  ${signaturePreview ? `<img src="${signaturePreview}" style="max-width:100%; max-height:100%; object-fit:contain;" alt="Customer Signature" />` : '<div style="font-size:11px; color:#666;">Please sign here</div>'}
                 </div>
               </td>
             </tr>
@@ -915,7 +1032,7 @@ const Billing = () => {
           ${getInvoiceHeader(comp, r)}
           ${getCustomerInfo(c, r, photoPreview)}
           ${getItemsTable(r)}
-          ${getTermsAndSignatures(r)}
+          ${getTermsAndSignatures(r, signaturePreview)}
         </div>
       </body>
       </html>
@@ -949,6 +1066,16 @@ const Billing = () => {
       </table>
     `;
 
+    const invoiceHTML = `
+      <div class="invoice-container">
+        ${getInvoiceHeader(comp, r)}
+        ${getCustomerInfo(c, r, photoPreview)}
+        ${bankDetailsSection}
+        ${getItemsTable(r)}
+        ${getTermsAndSignatures(r, signaturePreview)}
+      </div>
+    `;
+
     const html = `
       <!DOCTYPE html>
       <html lang="en">
@@ -957,20 +1084,46 @@ const Billing = () => {
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
         <title>${r.invoiceNo} - Release</title>
         <style>${getInvoiceStyles()}</style>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
       </head>
       <body>
         <div class="no-print" style="text-align:center; margin:10px;">
-          <button onclick="window.print()" style="padding:10px 20px; background:#d4a017; border:none; color:white; font-size:16px; cursor:pointer;">
+          <button onclick="window.print()" style="padding:10px 20px; background:#d4a017; border:none; color:white; font-size:16px; cursor:pointer; margin-right:10px;">
             Print Invoice
           </button>
+          <button onclick="downloadPDF()" style="padding:10px 20px; background:#28a745; border:none; color:white; font-size:16px; cursor:pointer;">
+            Download PDF
+          </button>
         </div>
-        <div class="invoice-container">
-          ${getInvoiceHeader(comp, r)}
-          ${getCustomerInfo(c, r, photoPreview)}
-          ${bankDetailsSection}
-          ${getItemsTable(r)}
-          ${getTermsAndSignatures(r)}
-        </div>
+        ${invoiceHTML}
+        <script>
+          function downloadPDF() {
+            const element = document.querySelector('.invoice-container');
+            const opt = {
+              margin: [0, 0, 0, 0],
+              filename: '${r.invoiceNo}.pdf',
+              image: { type: 'jpeg', quality: 0.98 },
+              html2canvas: { 
+                scale: 1.5,
+                useCORS: true,
+                logging: false,
+                letterRendering: true,
+                allowTaint: true,
+                width: 1000,
+                height: 1425,
+                windowWidth: 1000
+              },
+              jsPDF: { 
+                unit: 'mm', 
+                format: 'a4', 
+                orientation: 'portrait',
+                compress: true
+              },
+              pagebreak: { mode: ['avoid-all', 'css', 'legacy'] }
+            };
+            html2pdf().set(opt).from(element).save();
+          }
+        </script>
       </body>
       </html>
     `;
@@ -980,6 +1133,207 @@ const Billing = () => {
     win.document.write(html);
     win.document.close();
   }
+
+  // Download PDF Invoice function
+  const downloadInvoicePDF = () => {
+    if (!company || !result) {
+      alert('Company data or billing result not available');
+      return;
+    }
+
+    const comp = company;
+    const c = customer;
+    const r = result;
+
+    // Generate bank details section if needed
+    let bankDetailsSection = '';
+    if (billingType === 'Release') {
+      bankDetailsSection = `
+        <table style="margin-top:10px;">
+          <tr class="bold center" style="background-color:#f0f0f0;">
+            <td colspan="4">BANK DETAILS</td>
+          </tr>
+          <tr>
+            <td><b>BANK NAME:</b></td>
+            <td>${bankName || '____________'}</td>
+            <td><b>RELEASE AMOUNT:</b></td>
+            <td>₹ ${Number(renewalAmount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+          </tr>
+          <tr>
+            <td><b>COMMISSION %:</b></td>
+            <td>${commissionPercentage}%</td>
+            <td><b>COMMISSION AMOUNT:</b></td>
+            <td>₹ ${Number(commissionAmount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+          </tr>
+        </table>
+      `;
+    } else if (billingType === 'TakeOver') {
+      bankDetailsSection = `
+        <table style="margin-top:10px;">
+          <tr class="bold center" style="background-color:#f0f0f0;">
+            <td colspan="2">BANK DETAILS</td>
+          </tr>
+          <tr>
+            <td><b>BANK NAME:</b></td>
+            <td>${bankName || '____________'}</td>
+          </tr>
+        </table>
+      `;
+    }
+
+    // Get the full URL for the logo to ensure it loads correctly in iframe
+    const logoUrl = window.location.origin + `/images/${comp.logoFile}`;
+    
+    // Create header with absolute logo URL
+    const invoiceHeader = `
+      <table class="header-table">
+        <tr>
+          <td class="center" colspan="3">
+            <div class="logo">
+              <img src="${logoUrl}" alt="${comp.companyName}" style="width: 80px; height: 60px; object-fit: contain; max-width: 80px; max-height: 60px; display: block; margin: 0 auto;" />
+            </div>
+            <div class="bold" style="font-size:24px; margin-top:5px;">
+              ${comp.companyName}
+            </div>
+            <div style="font-size:12px; margin-top:5px; line-height:1.4;">
+              ${comp.addressLine1} <br>
+              ${comp.addressLine2} <br>
+              <b>Phone:</b> ${comp.phone}
+            </div>
+          </td>
+        </tr>
+      </table>
+      <table>
+        <tr>
+          <td><b>BRANCH :</b> Kadapa - Central</td>
+          <td><b>CONTACT :</b> ${comp.phone}</td>
+          <td><b>INVOICE NO :</b> ${r.invoiceNo}</td>
+        </tr>
+      </table>
+    `;
+
+    // Create full HTML document exactly like print invoice
+    const fullHTML = `
+      <!DOCTYPE html>
+      <html lang="en">
+      <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>${r.invoiceNo}</title>
+        <style>${getInvoiceStyles()}</style>
+      </head>
+      <body style="margin:0; padding:0; background:white;">
+        <div class="invoice-container">
+          ${invoiceHeader}
+          ${getCustomerInfo(c, r, photoPreview)}
+          ${bankDetailsSection}
+          ${getItemsTable(r)}
+          ${getTermsAndSignatures(r, signaturePreview)}
+        </div>
+      </body>
+      </html>
+    `;
+
+    // Create iframe to render the HTML properly
+    const iframe = document.createElement('iframe');
+    iframe.style.position = 'fixed';
+    iframe.style.width = '1000px';
+    iframe.style.height = '1425px';
+    iframe.style.left = '-10000px';
+    iframe.style.top = '0';
+    iframe.style.border = 'none';
+    iframe.style.backgroundColor = 'white';
+    document.body.appendChild(iframe);
+
+    const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
+    iframeDoc.open();
+    iframeDoc.write(fullHTML);
+    iframeDoc.close();
+
+    // Wait for iframe to load
+    iframe.onload = () => {
+      // Wait for images to load
+      const images = iframeDoc.querySelectorAll('img');
+      let imagesLoaded = 0;
+      const totalImages = images.length;
+
+      const checkAndGenerate = () => {
+        if (imagesLoaded >= totalImages) {
+          setTimeout(() => {
+            const invoiceElement = iframeDoc.querySelector('.invoice-container');
+            
+            if (!invoiceElement) {
+              alert('Error: Invoice content not found');
+              cleanup();
+              return;
+            }
+
+            const opt = {
+              margin: [0, 0, 0, 0],
+              filename: `${r.invoiceNo}.pdf`,
+              image: { type: 'jpeg', quality: 0.98 },
+              html2canvas: { 
+                scale: 1.5,
+                useCORS: true,
+                logging: false,
+                letterRendering: true,
+                allowTaint: true,
+                width: 1000,
+                height: 1425,
+                windowWidth: 1000
+              },
+              jsPDF: { 
+                unit: 'mm', 
+                format: 'a4', 
+                orientation: 'portrait',
+                compress: true
+              },
+              pagebreak: { mode: ['avoid-all', 'css', 'legacy'] }
+            };
+
+            html2pdf()
+              .set(opt)
+              .from(invoiceElement)
+              .save()
+              .then(() => {
+                cleanup();
+              })
+              .catch((error) => {
+                console.error('Error generating PDF:', error);
+                alert('Error generating PDF: ' + error.message);
+                cleanup();
+              });
+          }, 300);
+        }
+      };
+
+      const cleanup = () => {
+        if (document.body.contains(iframe)) {
+          document.body.removeChild(iframe);
+        }
+      };
+
+      if (totalImages === 0) {
+        checkAndGenerate();
+      } else {
+        images.forEach((img) => {
+          if (img.complete && img.naturalHeight !== 0) {
+            imagesLoaded++;
+            checkAndGenerate();
+          } else {
+            img.onload = () => {
+              imagesLoaded++;
+              checkAndGenerate();
+            };
+            img.onerror = () => {
+              imagesLoaded++;
+              checkAndGenerate();
+            };
+          }
+        });
+      }
+    };
+  };
 
   // TakeOver Billing Invoice (with Bank Details)
   function printTakeOverInvoice(comp, c, r) {
@@ -995,6 +1349,16 @@ const Billing = () => {
       </table>
     `;
 
+    const invoiceHTML = `
+      <div class="invoice-container">
+        ${getInvoiceHeader(comp, r)}
+        ${getCustomerInfo(c, r, photoPreview)}
+        ${bankDetailsSection}
+        ${getItemsTable(r)}
+        ${getTermsAndSignatures(r, signaturePreview)}
+      </div>
+    `;
+
     const html = `
       <!DOCTYPE html>
       <html lang="en">
@@ -1003,20 +1367,46 @@ const Billing = () => {
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
         <title>${r.invoiceNo} - TakeOver</title>
         <style>${getInvoiceStyles()}</style>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
       </head>
       <body>
         <div class="no-print" style="text-align:center; margin:10px;">
-          <button onclick="window.print()" style="padding:10px 20px; background:#d4a017; border:none; color:white; font-size:16px; cursor:pointer;">
+          <button onclick="window.print()" style="padding:10px 20px; background:#d4a017; border:none; color:white; font-size:16px; cursor:pointer; margin-right:10px;">
             Print Invoice
           </button>
+          <button onclick="downloadPDF()" style="padding:10px 20px; background:#28a745; border:none; color:white; font-size:16px; cursor:pointer;">
+            Download PDF
+          </button>
         </div>
-        <div class="invoice-container">
-          ${getInvoiceHeader(comp, r)}
-          ${getCustomerInfo(c, r, photoPreview)}
-          ${bankDetailsSection}
-          ${getItemsTable(r)}
-          ${getTermsAndSignatures(r)}
-        </div>
+        ${invoiceHTML}
+        <script>
+          function downloadPDF() {
+            const element = document.querySelector('.invoice-container');
+            const opt = {
+              margin: [0, 0, 0, 0],
+              filename: '${r.invoiceNo}.pdf',
+              image: { type: 'jpeg', quality: 0.98 },
+              html2canvas: { 
+                scale: 1.5,
+                useCORS: true,
+                logging: false,
+                letterRendering: true,
+                allowTaint: true,
+                width: 1000,
+                height: 1425,
+                windowWidth: 1000
+              },
+              jsPDF: { 
+                unit: 'mm', 
+                format: 'a4', 
+                orientation: 'portrait',
+                compress: true
+              },
+              pagebreak: { mode: ['avoid-all', 'css', 'legacy'] }
+            };
+            html2pdf().set(opt).from(element).save();
+          }
+        </script>
       </body>
       </html>
     `;
@@ -1609,6 +1999,43 @@ const Billing = () => {
                     )}
                     <p className="text-xs text-gray-500">
                       Upload a clear photo of the customer (max 5MB, JPG/PNG/WebP)
+                    </p>
+                  </div>
+                </div>
+
+                {/* Customer Signature Upload */}
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Customer Signature
+                  </label>
+                  <div className="space-y-3">
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={handleSignatureCapture}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-blue-400 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+                    />
+                    {signaturePreview && (
+                      <div className="flex items-center space-x-4 p-4 bg-gray-50 rounded-lg">
+                        <img
+                          src={signaturePreview}
+                          alt="Customer Signature"
+                          className="w-32 h-20 object-contain rounded-lg border-2 border-gray-300 bg-white"
+                        />
+                        <div className="flex-1">
+                          <p className="text-sm text-gray-600">Signature uploaded successfully</p>
+                          <button
+                            type="button"
+                            onClick={removeSignature}
+                            className="text-red-500 hover:text-red-700 text-sm font-medium mt-1"
+                          >
+                            Remove Signature
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                    <p className="text-xs text-gray-500">
+                      Upload customer signature image (max 2MB, JPG/PNG/WebP)
                     </p>
                   </div>
                 </div>

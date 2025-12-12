@@ -1,5 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { cashAPI } from '../../services/api';
+import { FaDownload } from 'react-icons/fa';
+import jsPDF from 'jspdf';
 
 const CashVault = ({
   user,
@@ -29,6 +31,242 @@ const CashVault = ({
       return entryDate >= today && entryDate < tomorrow;
     });
   }, [cashEntries]);
+
+  // Helper function to draw table with borders
+  const drawTable = (doc, startX, startY, headers, rows, colWidths) => {
+    const rowHeight = 7;
+    let currentY = startY;
+    const tableWidth = colWidths.reduce((sum, w) => sum + w, 0);
+    
+    // Draw header
+    doc.setFillColor(240, 240, 240);
+    doc.rect(startX, currentY, tableWidth, rowHeight, 'F');
+    doc.setDrawColor(0, 0, 0);
+    doc.setLineWidth(0.5);
+    doc.rect(startX, currentY, tableWidth, rowHeight);
+    
+    let xPos = startX;
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'bold');
+    headers.forEach((header, index) => {
+      doc.text(header, xPos + 2, currentY + 5, { align: 'left' });
+      if (index < headers.length - 1) {
+        doc.line(xPos + colWidths[index], currentY, xPos + colWidths[index], currentY + rowHeight);
+      }
+      xPos += colWidths[index];
+    });
+    currentY += rowHeight;
+    
+    // Draw rows
+    doc.setFont('helvetica', 'normal');
+    rows.forEach((row) => {
+      doc.rect(startX, currentY, tableWidth, rowHeight);
+      xPos = startX;
+      row.forEach((cell, index) => {
+        doc.text(cell, xPos + 2, currentY + 5, { align: 'left', maxWidth: colWidths[index] - 4 });
+        if (index < row.length - 1) {
+          doc.line(xPos + colWidths[index], currentY, xPos + colWidths[index], currentY + rowHeight);
+        }
+        xPos += colWidths[index];
+      });
+      currentY += rowHeight;
+    });
+    
+    return currentY;
+  };
+
+  // Download daily transactions as PDF
+  const downloadDailyTransactions = (data) => {
+    try {
+      const { date, transactions, summary } = data;
+      const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+      let yPos = 15;
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const margin = 10;
+      const contentWidth = pageWidth - (margin * 2);
+      
+      // Helper function to add a new page if needed
+      const checkPageBreak = (requiredHeight) => {
+        if (yPos + requiredHeight > doc.internal.pageSize.getHeight() - 15) {
+          doc.addPage();
+          yPos = 15;
+          return true;
+        }
+        return false;
+      };
+      
+      // Header
+      doc.setFontSize(16);
+      doc.setFont('helvetica', 'bold');
+      doc.text('DAILY TRANSACTIONS REPORT', pageWidth / 2, yPos, { align: 'center' });
+      yPos += 8;
+      
+      doc.setFontSize(11);
+      doc.setFont('helvetica', 'normal');
+      const reportDate = new Date(date).toLocaleDateString('en-IN', { year: 'numeric', month: 'long', day: 'numeric' });
+      doc.text(`Date: ${reportDate}`, pageWidth / 2, yPos, { align: 'center' });
+      yPos += 10;
+      
+      // Summary Table
+      doc.setFontSize(12);
+      doc.setFont('helvetica', 'bold');
+      doc.text('SUMMARY', margin, yPos);
+      yPos += 8;
+      
+      const summaryHeaders = ['Description', 'Amount'];
+      const overallCash = (summary?.totalBillings || 0) + (summary?.totalRenewals || 0) + (summary?.totalTakeovers || 0);
+      const summaryRows = [
+        ['Physical Sales', `Rs. ${(summary?.totalBillings || 0).toLocaleString('en-IN')}`],
+        ['Releases', `Rs. ${(summary?.totalRenewals || 0).toLocaleString('en-IN')}`],
+        ['Takeovers', `Rs. ${(summary?.totalTakeovers || 0).toLocaleString('en-IN')}`],
+        ['Overall Cash', `Rs. ${overallCash.toLocaleString('en-IN')}`],
+      ];
+      const summaryColWidths = [contentWidth * 0.6, contentWidth * 0.4];
+      
+      yPos = drawTable(doc, margin, yPos, summaryHeaders, summaryRows, summaryColWidths);
+      yPos += 8;
+      checkPageBreak(30);
+      
+      // Physical Sales Transactions
+      doc.setFontSize(12);
+      doc.setFont('helvetica', 'bold');
+      doc.text('PHYSICAL SALES TRANSACTIONS', margin, yPos);
+      yPos += 8;
+      
+      if (transactions?.billings && transactions.billings.length > 0) {
+        const billingHeaders = ['Invoice No', 'Customer Name', 'Mobile', 'Amount', 'Date'];
+        const billingRows = transactions.billings.map(billing => {
+          const transDate = new Date(billing.createdAt || billing.date).toLocaleDateString('en-IN');
+          return [
+            billing.invoiceNo || 'N/A',
+            (billing.customer?.name || 'N/A').substring(0, 20),
+            (billing.customer?.mobile || 'N/A'),
+            `Rs. ${(billing.calculation?.finalPayout || billing.calculation?.editedAmount || 0).toLocaleString('en-IN')}`,
+            transDate
+          ];
+        });
+        const billingColWidths = [35, 50, 30, 35, 30];
+        
+        yPos = drawTable(doc, margin, yPos, billingHeaders, billingRows, billingColWidths);
+      } else {
+        doc.setFontSize(10);
+        doc.setFont('helvetica', 'italic');
+        doc.text('No physical sales transactions for this date.', margin, yPos);
+        yPos += 6;
+      }
+      
+      yPos += 8;
+      checkPageBreak(30);
+      
+      // Release Transactions
+      doc.setFontSize(12);
+      doc.setFont('helvetica', 'bold');
+      doc.text('RELEASE TRANSACTIONS', margin, yPos);
+      yPos += 8;
+      
+      if (transactions?.renewals && transactions.renewals.length > 0) {
+        const renewalHeaders = ['Renewal No', 'Customer Name', 'Bank Name', 'Loan Amount', 'Commission', 'Date'];
+        const renewalRows = transactions.renewals.map(renewal => {
+          const transDate = new Date(renewal.createdAt || renewal.date).toLocaleDateString('en-IN');
+          return [
+            renewal.renewalNo || 'N/A',
+            (renewal.customer?.name || 'N/A').substring(0, 18),
+            (renewal.bankDetails?.bankName || 'N/A').substring(0, 18),
+            `Rs. ${(renewal.renewalDetails?.renewalAmount || 0).toLocaleString('en-IN')}`,
+            `Rs. ${(renewal.renewalDetails?.commissionAmount || 0).toLocaleString('en-IN')}`,
+            transDate
+          ];
+        });
+        const renewalColWidths = [30, 35, 35, 30, 30, 25];
+        
+        yPos = drawTable(doc, margin, yPos, renewalHeaders, renewalRows, renewalColWidths);
+      } else {
+        doc.setFontSize(10);
+        doc.setFont('helvetica', 'italic');
+        doc.text('No release transactions for this date.', margin, yPos);
+        yPos += 6;
+      }
+      
+      yPos += 8;
+      checkPageBreak(30);
+      
+      // Takeover Transactions
+      doc.setFontSize(12);
+      doc.setFont('helvetica', 'bold');
+      doc.text('TAKEOVER TRANSACTIONS', margin, yPos);
+      yPos += 8;
+      
+      if (transactions?.takeovers && transactions.takeovers.length > 0) {
+        const takeoverHeaders = ['Takeover No', 'Customer Name', 'Bank Name', 'Amount', 'Date'];
+        const takeoverRows = transactions.takeovers.map(takeover => {
+          const transDate = new Date(takeover.createdAt || takeover.date).toLocaleDateString('en-IN');
+          return [
+            takeover.takeoverNo || 'N/A',
+            (takeover.customer?.name || 'N/A').substring(0, 25),
+            (takeover.bankDetails?.bankName || 'N/A').substring(0, 25),
+            `Rs. ${(takeover.takeoverDetails?.takeoverAmount || 0).toLocaleString('en-IN')}`,
+            transDate
+          ];
+        });
+        const takeoverColWidths = [35, 50, 50, 35, 30];
+        
+        yPos = drawTable(doc, margin, yPos, takeoverHeaders, takeoverRows, takeoverColWidths);
+      } else {
+        doc.setFontSize(10);
+        doc.setFont('helvetica', 'italic');
+        doc.text('No takeover transactions for this date.', margin, yPos);
+        yPos += 6;
+      }
+      
+      yPos += 8;
+      checkPageBreak(30);
+      
+      // Cash Entries
+      doc.setFontSize(12);
+      doc.setFont('helvetica', 'bold');
+      doc.text('CASH ENTRIES', margin, yPos);
+      yPos += 8;
+      
+      if (transactions?.cashEntries && transactions.cashEntries.length > 0) {
+        const cashHeaders = ['Type', 'Amount', 'Date', 'Added By'];
+        const cashRows = transactions.cashEntries.map(entry => {
+          const transDate = new Date(entry.createdAt).toLocaleDateString('en-IN');
+          const type = (entry.type || 'N/A').charAt(0).toUpperCase() + (entry.type || 'N/A').slice(1);
+          return [
+            type,
+            `Rs. ${entry.amount.toLocaleString('en-IN')}`,
+            transDate,
+            entry.addedBy?.name || 'N/A'
+          ];
+        });
+        const cashColWidths = [30, 40, 40, 60];
+        
+        yPos = drawTable(doc, margin, yPos, cashHeaders, cashRows, cashColWidths);
+      } else {
+        doc.setFontSize(10);
+        doc.setFont('helvetica', 'italic');
+        doc.text('No cash entries for this date.', margin, yPos);
+        yPos += 6;
+      }
+      
+      // Footer
+      const totalPages = doc.internal.pages.length - 1;
+      for (let i = 1; i <= totalPages; i++) {
+        doc.setPage(i);
+        doc.setFontSize(8);
+        doc.setFont('helvetica', 'italic');
+        doc.text(`Page ${i} of ${totalPages}`, pageWidth - margin, doc.internal.pageSize.getHeight() - 10, { align: 'right' });
+        doc.text('Generated by Sujana Gold System', margin, doc.internal.pageSize.getHeight() - 10);
+      }
+      
+      // Save PDF
+      doc.save(`daily-transactions-${date}.pdf`);
+      alert('Daily transactions PDF downloaded successfully!');
+    } catch (error) {
+      console.error('Error downloading daily transactions:', error);
+      alert('Failed to download daily transactions. Please try again.');
+    }
+  };
 
   // Calculate today's totals
   const todayTotals = useMemo(() => {
@@ -253,7 +491,16 @@ const CashVault = ({
       {/* Daily Transactions Display */}
       {dailyTransactions && (
         <div className="bg-purple-50 p-6 rounded-lg mb-6">
-          <h3 className="font-semibold text-lg mb-4">Daily Transactions Summary ({dailyTransactions.date})</h3>
+          <div className="flex justify-between items-center mb-4">
+            <h3 className="font-semibold text-lg">Daily Transactions Summary ({dailyTransactions.date})</h3>
+            <button
+              onClick={() => downloadDailyTransactions(dailyTransactions)}
+              className="flex items-center gap-2 bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-md font-medium transition duration-300 text-sm"
+            >
+              <FaDownload />
+              Download PDF
+            </button>
+          </div>
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
             <div className="bg-white p-4 rounded border overflow-hidden">
               <div className="text-sm text-gray-600 mb-2">Physical Sales</div>

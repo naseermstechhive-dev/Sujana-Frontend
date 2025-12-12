@@ -15,6 +15,8 @@ const UserVault = ({
   const [selectedBilling, setSelectedBilling] = useState(null);
   const [customerPhoto, setCustomerPhoto] = useState(null);
   const [photoPreview, setPhotoPreview] = useState(null);
+  const [customerSignature, setCustomerSignature] = useState(null);
+  const [signaturePreview, setSignaturePreview] = useState(null);
 
   const handleSearch = () => {
     let filtered = billings;
@@ -63,11 +65,17 @@ const UserVault = ({
     }
   };
 
-  const uploadImage = (billing) => {
-    setSelectedBilling(billing);
-    setCustomerPhoto(null);
-    setPhotoPreview(null);
-    setShowPhotoModal(true);
+  const uploadImage = (billingId) => {
+    // Find the billing object from the filtered billings
+    const billing = filteredBillings.find(b => b._id === billingId) || billings.find(b => b._id === billingId);
+    if (billing) {
+      setSelectedBilling(billing);
+      setCustomerPhoto(null);
+      setPhotoPreview(null);
+      setCustomerSignature(null);
+      setSignaturePreview(null);
+      setShowPhotoModal(true);
+    }
   };
 
   const handlePhotoCapture = (event) => {
@@ -99,15 +107,45 @@ const UserVault = ({
     setPhotoPreview(null);
   };
 
+  // Signature handling functions
+  const handleSignatureCapture = (event) => {
+    const file = event.target.files[0];
+    if (file) {
+      // Validate file type
+      if (!file.type.startsWith('image/')) {
+        alert('Please select a valid image file');
+        return;
+      }
+
+      // Validate file size (max 2MB)
+      if (file.size > 2 * 1024 * 1024) {
+        alert('Signature size should be less than 2MB');
+        return;
+      }
+
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        setCustomerSignature(file);
+        setSignaturePreview(e.target.result);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const removeSignature = () => {
+    setCustomerSignature(null);
+    setSignaturePreview(null);
+  };
+
   const savePhoto = () => {
-    if (!photoPreview) {
-      alert('Please select an image first');
+    if (!photoPreview && !signaturePreview) {
+      alert('Please select at least a photo or signature');
       return;
     }
 
-    alert('Photo uploaded successfully for printing!');
+    alert('Photo and signature uploaded successfully for printing!');
     setShowPhotoModal(false);
-    // Photo is now stored in photoPreview state for printing
+    // Photo and signature are now stored in photoPreview and signaturePreview state for printing
   };
 
   const printInvoice = (billing) => {
@@ -115,6 +153,9 @@ const UserVault = ({
 
     const comp = company;
     const c = billing.customer;
+    // Use uploaded signature if available, otherwise use saved signature from billing
+    const currentSignature = signaturePreview || billing.customerSignature;
+    const currentPhoto = photoPreview || billing.customerPhoto;
     
     // Handle multiple items or single item - check both goldDetails.items and calculation.items
     const goldItems = billing.goldDetails?.items && billing.goldDetails.items.length > 0 ? billing.goldDetails.items : null;
@@ -229,7 +270,7 @@ const UserVault = ({
               <td rowspan="4" style="width:180px; padding:0; margin:0; border:1px solid black; vertical-align:top;">
                 <!-- PHOTO BOX -->
                 <div style="width:100%; height:130px; border-bottom:1px solid black; display:flex; align-items:center; justify-content:center;">
-                  ${photoPreview ? `<img src="${photoPreview}" style="width:100%; height:100%; object-fit:cover;" alt="Customer Photo" />` : '<div style="text-align:center; color:#999;">Photo</div>'}
+                  ${currentPhoto ? `<img src="${currentPhoto}" style="width:100%; height:100%; object-fit:cover;" alt="Customer Photo" />` : '<div style="text-align:center; color:#999;">Photo</div>'}
                 </div>
                 <!-- ID PROOF ROW -->
                 <div style="border-bottom:1px solid black; padding:6px; font-size:13px;">
@@ -348,8 +389,8 @@ const UserVault = ({
                       <div style="position:absolute; bottom:8px; left:50%; transform:translateX(-50%); font-size:13px;">
                         CUSTOMER SIGNATURE
                       </div>
-                      <div style="height: 70%; display:flex; align-items:center; justify-content:center; font-size:11px; color:#666; margin-bottom:20px;">
-                        Please sign here
+                      <div style="height: 70%; display:flex; align-items:center; justify-content:center; margin-bottom:20px; padding:5px;">
+                        ${currentSignature ? `<img src="${currentSignature}" style="max-width:100%; max-height:100%; object-fit:contain;" alt="Customer Signature" />` : '<div style="font-size:11px; color:#666;">Signature not available</div>'}
                       </div>
                     </td>
                   </tr>
@@ -383,6 +424,17 @@ const UserVault = ({
     win.document.title = `Invoice - ${r.invoiceNo}`;
     win.document.write(html);
     win.document.close();
+    
+    // Clear uploaded photo and signature after printing (so they don't affect other billings)
+    // Only clear if they were uploaded (not from database)
+    if (photoPreview && !billing.customerPhoto) {
+      setPhotoPreview(null);
+      setCustomerPhoto(null);
+    }
+    if (signaturePreview && !billing.customerSignature) {
+      setSignaturePreview(null);
+      setCustomerSignature(null);
+    }
   };
 
   return (
@@ -524,7 +576,7 @@ const UserVault = ({
           <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
             <div className="flex justify-between items-center mb-4">
               <h3 className="text-lg font-semibold text-gray-800">
-                Upload Photo for {selectedBilling.customer?.name}
+                Upload Photo & Signature for {selectedBilling.customer?.name}
               </h3>
               <button
                 onClick={() => setShowPhotoModal(false)}
@@ -535,6 +587,7 @@ const UserVault = ({
             </div>
 
             <div className="space-y-4">
+              {/* Customer Photo Upload */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Select Customer Photo
@@ -570,17 +623,52 @@ const UserVault = ({
                 </div>
               )}
 
+              {/* Customer Signature Upload */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Select Customer Signature
+                </label>
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={handleSignatureCapture}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-blue-400 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  Upload customer signature image (max 2MB, JPG/PNG/WebP)
+                </p>
+              </div>
+
+              {signaturePreview && (
+                <div className="flex items-center space-x-4 p-4 bg-gray-50 rounded-lg">
+                  <img
+                    src={signaturePreview}
+                    alt="Customer Signature Preview"
+                    className="w-32 h-20 object-contain rounded-lg border-2 border-gray-300 bg-white"
+                  />
+                  <div className="flex-1">
+                    <p className="text-sm text-gray-600">Signature uploaded successfully</p>
+                    <button
+                      onClick={removeSignature}
+                      className="text-red-500 hover:text-red-700 text-sm font-medium mt-1"
+                    >
+                      Remove Signature
+                    </button>
+                  </div>
+                </div>
+              )}
+
               <div className="flex space-x-3">
                 <button
                   onClick={savePhoto}
-                  disabled={!photoPreview}
+                  disabled={!photoPreview && !signaturePreview}
                   className={`flex-1 font-bold py-2 px-4 rounded-lg transition duration-300 ${
-                    !photoPreview
+                    !photoPreview && !signaturePreview
                       ? 'bg-green-400 cursor-not-allowed text-white'
                       : 'bg-green-600 hover:bg-green-700 text-white'
                   }`}
                 >
-                  💾 Save Photo
+                  💾 Save Photo & Signature
                 </button>
                 <button
                   onClick={() => setShowPhotoModal(false)}
