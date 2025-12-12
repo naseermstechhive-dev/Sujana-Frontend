@@ -214,6 +214,102 @@ const About = () => {
           </div>
         </div>
       </section>
+
+      {/* Our Commitment Section */}
+      <section className="py-16 bg-gradient-to-br from-yellow-50 to-gray-50">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="text-center mb-12">
+            <h2 className="text-3xl md:text-4xl font-bold text-gray-900 mb-4">
+              Our <span className="text-yellow-500">Commitment</span>
+            </h2>
+            <p className="text-lg text-gray-600 max-w-2xl mx-auto">
+              We are dedicated to providing the best service with integrity and transparency.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+            <div className="bg-white p-6 rounded-lg shadow-md hover:shadow-xl transition duration-300 border-l-4 border-yellow-400">
+              <div className="mb-4">
+                <div className="bg-yellow-100 rounded-full p-3 w-14 h-14 flex items-center justify-center">
+                  <svg className="h-7 w-7 text-yellow-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+                  </svg>
+                </div>
+              </div>
+              <h3 className="text-xl font-semibold text-gray-900 mb-2">Secure Transactions</h3>
+              <p className="text-gray-600 text-sm">
+                All transactions are conducted with the highest security standards and confidentiality.
+              </p>
+            </div>
+
+            <div className="bg-white p-6 rounded-lg shadow-md hover:shadow-xl transition duration-300 border-l-4 border-yellow-400">
+              <div className="mb-4">
+                <div className="bg-yellow-100 rounded-full p-3 w-14 h-14 flex items-center justify-center">
+                  <svg className="h-7 w-7 text-yellow-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                </div>
+              </div>
+              <h3 className="text-xl font-semibold text-gray-900 mb-2">Fair Pricing</h3>
+              <p className="text-gray-600 text-sm">
+                Competitive market rates with transparent pricing and no hidden charges.
+              </p>
+            </div>
+
+            <div className="bg-white p-6 rounded-lg shadow-md hover:shadow-xl transition duration-300 border-l-4 border-yellow-400">
+              <div className="mb-4">
+                <div className="bg-yellow-100 rounded-full p-3 w-14 h-14 flex items-center justify-center">
+                  <svg className="h-7 w-7 text-yellow-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                  </svg>
+                </div>
+              </div>
+              <h3 className="text-xl font-semibold text-gray-900 mb-2">Quick Service</h3>
+              <p className="text-gray-600 text-sm">
+                Fast evaluation and instant cash payment to meet your urgent financial needs.
+              </p>
+            </div>
+
+            <div className="bg-white p-6 rounded-lg shadow-md hover:shadow-xl transition duration-300 border-l-4 border-yellow-400">
+              <div className="mb-4">
+                <div className="bg-yellow-100 rounded-full p-3 w-14 h-14 flex items-center justify-center">
+                  <svg className="h-7 w-7 text-yellow-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" />
+                  </svg>
+                </div>
+              </div>
+              <h3 className="text-xl font-semibold text-gray-900 mb-2">Customer Care</h3>
+              <p className="text-gray-600 text-sm">
+                Dedicated support and personalized service to ensure your complete satisfaction.
+              </p>
+            </div>
+          </div>
+
+          <div className="mt-12 text-center">
+            <div className="bg-white p-8 rounded-lg shadow-lg max-w-3xl mx-auto">
+              <h3 className="text-2xl font-bold text-gray-900 mb-4">
+                Trusted by Thousands
+              </h3>
+              <p className="text-gray-600 mb-6">
+                With over {companyData.businessYears} years of experience and {companyData.ratings.totalReviews}+ satisfied customers, 
+                we have built a reputation for reliability and excellence in the gold trading industry.
+              </p>
+              <div className="flex items-center justify-center space-x-2">
+                <div className="flex text-yellow-400">
+                  {[...Array(5)].map((_, i) => (
+                    <svg key={i} className="h-6 w-6 fill-current" viewBox="0 0 20 20">
+                      <path d="M10 15l-5.878 3.09 1.123-6.545L.489 6.91l6.572-.955L10 0l2.939 5.955 6.572.955-4.756 4.635 1.123 6.545z" />
+                    </svg>
+                  ))}
+                </div>
+                <span className="text-gray-700 font-semibold ml-2">
+                  {companyData.ratings.average} / 5.0
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
     </div>
   );
 };

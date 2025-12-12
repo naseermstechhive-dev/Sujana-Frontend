@@ -173,4 +173,14 @@ export const takeoverAPI = {
     }),
 };
 
+export const goldPriceAPI = {
+  getGoldPrices: () => apiRequest('/gold-prices'),
+
+  updateGoldPrices: (prices) =>
+    apiRequest('/gold-prices', {
+      method: 'PUT',
+      body: JSON.stringify(prices),
+    }),
+};
+
 export default apiRequest;

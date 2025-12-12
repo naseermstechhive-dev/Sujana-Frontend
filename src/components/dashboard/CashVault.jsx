@@ -154,21 +154,21 @@ const CashVault = ({
               </button>
               <button
                 onClick={async () => {
-                  if (!window.confirm('Are you sure you want to end the day? This will:\n- Save today\'s margin data (for Analytics)\n- Reset initial cash (for next day)\n- Reset gold transactions\n\nNote: All transaction data is preserved in MongoDB for Analytics. Cash Vault will only show tomorrow\'s transactions after you set new initial cash.')) {
+                  if (!window.confirm('Are you sure you want to end the day? This will:\n- Reset initial cash (for next day)\n- Reset daily view (total billing, margin, remaining cash will show 0 for new day)\n- All transaction data is preserved in database for Analytics and Expense Tracker\n- UserVault will continue to show all historical billings\n\nNote: After reset, set new initial cash to start the next day.')) {
                     return;
                   }
                   try {
-                    // Calculate and save margin (for historical record in Analytics)
-                    await fetchMargin();
-                    // Reset initial cash only (billing deductions stay in DB for Analytics)
+                    // Reset initial cash only (all billing deductions, margin, remaining cash calculations stay in DB)
                     await cashAPI.resetAllCash();
-                    // Reset gold transactions
+                    // Reset gold transactions view (does NOT delete data - just marks day as ended)
                     await resetGoldTransactions();
-                    // Refresh cash vault
+                    // Refresh cash vault (will show empty for new day since no initial cash set yet)
                     await fetchCashVault();
                     // Refresh initial cash status
                     await checkInitialCashStatus();
-                    alert('Day ended successfully! Initial cash reset. All historical data preserved in MongoDB for Analytics and Expense Tracker. Set new initial cash to start next day.');
+                    // Refresh margin to show 0 for new day
+                    await fetchMargin();
+                    alert('Day ended successfully!\n\n✅ Initial cash reset\n✅ Daily view reset (total billing, margin, remaining cash will show 0 for new day)\n✅ All historical data preserved in database for Analytics and Expense Tracker\n✅ UserVault unchanged (shows all historical billings)\n\nSet new initial cash to start the next day.');
                   } catch (error) {
                     alert('Error ending day: ' + error.message);
                   }
@@ -189,28 +189,28 @@ const CashVault = ({
         </p>
       </div>
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-6">
-        <div className="bg-green-50 p-4 rounded-lg">
-          <h3 className="font-semibold">Initial Cash (Today)</h3>
-          <p className="text-2xl font-bold text-green-700">
+        <div className="bg-green-50 p-4 rounded-lg overflow-hidden">
+          <h3 className="font-semibold text-sm mb-2">Initial Cash (Today)</h3>
+          <p className="text-lg md:text-xl lg:text-2xl font-bold text-green-700 break-words overflow-hidden">
             ₹{todayTotals.initialCash.toLocaleString('en-IN')}
           </p>
         </div>
-        <div className="bg-red-50 p-4 rounded-lg">
-          <h3 className="font-semibold">Total Deductions (Today)</h3>
-          <p className="text-2xl font-bold text-red-700">
+        <div className="bg-red-50 p-4 rounded-lg overflow-hidden">
+          <h3 className="font-semibold text-sm mb-2">Total Deductions (Today)</h3>
+          <p className="text-lg md:text-xl lg:text-2xl font-bold text-red-700 break-words overflow-hidden">
             ₹{todayTotals.totalDeductions.toLocaleString('en-IN')}
           </p>
           <p className="text-xs text-gray-600 mt-1">Physical + Release + TakeOver</p>
         </div>
-        <div className="bg-blue-50 p-4 rounded-lg">
-          <h3 className="font-semibold">Remaining Cash</h3>
-          <p className="text-2xl font-bold text-blue-700">
+        <div className="bg-blue-50 p-4 rounded-lg overflow-hidden">
+          <h3 className="font-semibold text-sm mb-2">Remaining Cash</h3>
+          <p className="text-lg md:text-xl lg:text-2xl font-bold text-blue-700 break-words overflow-hidden">
             ₹{todayTotals.remainingCash.toLocaleString('en-IN')}
           </p>
         </div>
-        <div className="bg-purple-50 p-4 rounded-lg">
-          <h3 className="font-semibold">Margin (Today)</h3>
-          <p className="text-2xl font-bold text-purple-700">
+        <div className="bg-purple-50 p-4 rounded-lg overflow-hidden">
+          <h3 className="font-semibold text-sm mb-2">Margin (Today)</h3>
+          <p className="text-lg md:text-xl lg:text-2xl font-bold text-purple-700 break-words overflow-hidden">
             ₹{todayTotals.margin.toLocaleString('en-IN')}
           </p>
           <p className="text-xs text-gray-600 mt-1">Commission + Hidden Deductions</p>
@@ -222,21 +222,27 @@ const CashVault = ({
         <div className="bg-green-50 p-6 rounded-lg mb-6">
           <h3 className="font-semibold text-lg mb-4">Current Margin</h3>
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <div className="bg-white p-4 rounded border">
-              <div className="text-sm text-gray-600">Initial Cash</div>
-              <div className="text-2xl font-bold text-green-600">₹{marginData.initialCash.toLocaleString('en-IN')}</div>
+            <div className="bg-white p-4 rounded border overflow-hidden">
+              <div className="text-sm text-gray-600 mb-2">Initial Cash</div>
+              <div className="text-lg md:text-xl lg:text-2xl font-bold text-green-600 break-words overflow-hidden">
+                ₹{marginData.initialCash.toLocaleString('en-IN')}
+              </div>
             </div>
-            <div className="bg-white p-4 rounded border">
-              <div className="text-sm text-gray-600">Total Billings</div>
-              <div className="text-2xl font-bold text-red-600">₹{marginData.totalBillings.toLocaleString('en-IN')}</div>
+            <div className="bg-white p-4 rounded border overflow-hidden">
+              <div className="text-sm text-gray-600 mb-2">Total Billings</div>
+              <div className="text-lg md:text-xl lg:text-2xl font-bold text-red-600 break-words overflow-hidden">
+                ₹{marginData.totalBillings.toLocaleString('en-IN')}
+              </div>
             </div>
-            <div className="bg-white p-4 rounded border">
-              <div className="text-sm text-gray-600">Remaining Cash</div>
-              <div className="text-2xl font-bold text-blue-600">₹{marginData.remainingCash.toLocaleString('en-IN')}</div>
+            <div className="bg-white p-4 rounded border overflow-hidden">
+              <div className="text-sm text-gray-600 mb-2">Remaining Cash</div>
+              <div className="text-lg md:text-xl lg:text-2xl font-bold text-blue-600 break-words overflow-hidden">
+                ₹{marginData.remainingCash.toLocaleString('en-IN')}
+              </div>
             </div>
-            <div className="bg-white p-4 rounded border">
-              <div className="text-sm text-gray-600">Margin</div>
-              <div className={`text-2xl font-bold ${marginData.margin >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+            <div className="bg-white p-4 rounded border overflow-hidden">
+              <div className="text-sm text-gray-600 mb-2">Margin</div>
+              <div className={`text-lg md:text-xl lg:text-2xl font-bold break-words overflow-hidden ${marginData.margin >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                 ₹{marginData.margin.toLocaleString('en-IN')}
               </div>
             </div>
@@ -249,21 +255,27 @@ const CashVault = ({
         <div className="bg-purple-50 p-6 rounded-lg mb-6">
           <h3 className="font-semibold text-lg mb-4">Daily Transactions Summary ({dailyTransactions.date})</h3>
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
-            <div className="bg-white p-4 rounded border">
-              <div className="text-sm text-gray-600">Physical Sales</div>
-              <div className="text-xl font-bold text-blue-600">₹{dailyTransactions.summary.totalBillings.toLocaleString('en-IN')}</div>
+            <div className="bg-white p-4 rounded border overflow-hidden">
+              <div className="text-sm text-gray-600 mb-2">Physical Sales</div>
+              <div className="text-base md:text-lg lg:text-xl font-bold text-blue-600 break-words overflow-hidden">
+                ₹{dailyTransactions.summary.totalBillings.toLocaleString('en-IN')}
+              </div>
             </div>
-            <div className="bg-white p-4 rounded border">
-              <div className="text-sm text-gray-600">Releases</div>
-              <div className="text-xl font-bold text-green-600">₹{dailyTransactions.summary.totalRenewals.toLocaleString('en-IN')}</div>
+            <div className="bg-white p-4 rounded border overflow-hidden">
+              <div className="text-sm text-gray-600 mb-2">Releases</div>
+              <div className="text-base md:text-lg lg:text-xl font-bold text-green-600 break-words overflow-hidden">
+                ₹{dailyTransactions.summary.totalRenewals.toLocaleString('en-IN')}
+              </div>
             </div>
-            <div className="bg-white p-4 rounded border">
-              <div className="text-sm text-gray-600">Takeovers</div>
-              <div className="text-xl font-bold text-orange-600">₹{dailyTransactions.summary.totalTakeovers.toLocaleString('en-IN')}</div>
+            <div className="bg-white p-4 rounded border overflow-hidden">
+              <div className="text-sm text-gray-600 mb-2">Takeovers</div>
+              <div className="text-base md:text-lg lg:text-xl font-bold text-orange-600 break-words overflow-hidden">
+                ₹{dailyTransactions.summary.totalTakeovers.toLocaleString('en-IN')}
+              </div>
             </div>
-            <div className="bg-white p-4 rounded border">
-              <div className="text-sm text-gray-600">Net Cash Flow</div>
-              <div className={`text-xl font-bold ${dailyTransactions.summary.netCashFlow >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+            <div className="bg-white p-4 rounded border overflow-hidden">
+              <div className="text-sm text-gray-600 mb-2">Net Cash Flow</div>
+              <div className={`text-base md:text-lg lg:text-xl font-bold break-words overflow-hidden ${dailyTransactions.summary.netCashFlow >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                 ₹{dailyTransactions.summary.netCashFlow.toLocaleString('en-IN')}
               </div>
             </div>
