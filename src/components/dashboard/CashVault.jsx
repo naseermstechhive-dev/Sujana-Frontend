@@ -1,7 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { cashAPI } from '../../services/api';
-import { FaDownload } from 'react-icons/fa';
-import jsPDF from 'jspdf';
+import { FaPrint } from 'react-icons/fa';
 
 const CashVault = ({
   user,
@@ -17,259 +16,516 @@ const CashVault = ({
   fetchDailyTransactions,
   resetInitialCash,
   resetGoldTransactions,
-  billings
+  billings,
+  company
 }) => {
-  // Filter to show only today's transactions
+  // Helper function to get today's start time (4 AM)
+  const getTodayStart = () => {
+    const now = new Date();
+    const today = new Date(now);
+    
+    // If current time is before 4 AM, "today" started yesterday at 4 AM
+    if (now.getHours() < 4) {
+      today.setDate(today.getDate() - 1);
+    }
+    today.setHours(4, 0, 0, 0);
+    return today;
+  };
+
+  // Helper function to get today's end time (next day 4 AM)
+  const getTodayEnd = () => {
+    const todayStart = getTodayStart();
+    const todayEnd = new Date(todayStart);
+    todayEnd.setDate(todayEnd.getDate() + 1);
+    return todayEnd;
+  };
+
+  // Filter to show only today's transactions (from 4 AM to next 4 AM)
   const todayTransactions = useMemo(() => {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const tomorrow = new Date(today);
-    tomorrow.setDate(tomorrow.getDate() + 1);
+    const todayStart = getTodayStart();
+    const todayEnd = getTodayEnd();
 
     return cashEntries.filter(entry => {
       const entryDate = new Date(entry.createdAt);
-      return entryDate >= today && entryDate < tomorrow;
+      return entryDate >= todayStart && entryDate < todayEnd;
     });
   }, [cashEntries]);
 
-  // Helper function to draw table with borders
-  const drawTable = (doc, startX, startY, headers, rows, colWidths) => {
-    const rowHeight = 7;
-    let currentY = startY;
-    const tableWidth = colWidths.reduce((sum, w) => sum + w, 0);
-    
-    // Draw header
-    doc.setFillColor(240, 240, 240);
-    doc.rect(startX, currentY, tableWidth, rowHeight, 'F');
-    doc.setDrawColor(0, 0, 0);
-    doc.setLineWidth(0.5);
-    doc.rect(startX, currentY, tableWidth, rowHeight);
-    
-    let xPos = startX;
-    doc.setFontSize(9);
-    doc.setFont('helvetica', 'bold');
-    headers.forEach((header, index) => {
-      doc.text(header, xPos + 2, currentY + 5, { align: 'left' });
-      if (index < headers.length - 1) {
-        doc.line(xPos + colWidths[index], currentY, xPos + colWidths[index], currentY + rowHeight);
-      }
-      xPos += colWidths[index];
-    });
-    currentY += rowHeight;
-    
-    // Draw rows
-    doc.setFont('helvetica', 'normal');
-    rows.forEach((row) => {
-      doc.rect(startX, currentY, tableWidth, rowHeight);
-      xPos = startX;
-      row.forEach((cell, index) => {
-        doc.text(cell, xPos + 2, currentY + 5, { align: 'left', maxWidth: colWidths[index] - 4 });
-        if (index < row.length - 1) {
-          doc.line(xPos + colWidths[index], currentY, xPos + colWidths[index], currentY + rowHeight);
-        }
-        xPos += colWidths[index];
-      });
-      currentY += rowHeight;
-    });
-    
-    return currentY;
+  // Helper function to categorize purity
+  const getPurityCategory = (purityLabel) => {
+    if (!purityLabel) return 'Low Purity';
+    const purity = parseFloat(purityLabel.replace(/[^0-9.]/g, ''));
+    if (purity >= 91.5) return '916 Hallmark';
+    if (purity >= 90) return '916 Non Hallmark';
+    return 'Low Purity';
   };
 
-  // Download daily transactions as PDF
-  const downloadDailyTransactions = (data) => {
+  // Deduction per gram (matching billing system)
+  const DEDUCTION_PER_GRAM = 400;
+
+  // Print daily transactions - Gold Send Report format (EXACT MATCH)
+  const printDailyTransactions = (data) => {
     try {
+      if (!company) {
+        alert('Company data not loaded');
+        return;
+      }
+
       const { date, transactions, summary } = data;
-      const doc = new jsPDF({ unit: 'mm', format: 'a4' });
-      let yPos = 15;
-      const pageWidth = doc.internal.pageSize.getWidth();
-      const margin = 10;
-      const contentWidth = pageWidth - (margin * 2);
+      const comp = company;
       
-      // Helper function to add a new page if needed
-      const checkPageBreak = (requiredHeight) => {
-        if (yPos + requiredHeight > doc.internal.pageSize.getHeight() - 15) {
-          doc.addPage();
-          yPos = 15;
-          return true;
-        }
-        return false;
-      };
-      
-      // Header
-      doc.setFontSize(16);
-      doc.setFont('helvetica', 'bold');
-      doc.text('DAILY TRANSACTIONS REPORT', pageWidth / 2, yPos, { align: 'center' });
-      yPos += 8;
-      
-      doc.setFontSize(11);
-      doc.setFont('helvetica', 'normal');
-      const reportDate = new Date(date).toLocaleDateString('en-IN', { year: 'numeric', month: 'long', day: 'numeric' });
-      doc.text(`Date: ${reportDate}`, pageWidth / 2, yPos, { align: 'center' });
-      yPos += 10;
-      
-      // Summary Table
-      doc.setFontSize(12);
-      doc.setFont('helvetica', 'bold');
-      doc.text('SUMMARY', margin, yPos);
-      yPos += 8;
-      
-      const summaryHeaders = ['Description', 'Amount'];
-      const overallCash = (summary?.totalBillings || 0) + (summary?.totalRenewals || 0) + (summary?.totalTakeovers || 0);
-      const summaryRows = [
-        ['Physical Sales', `Rs. ${(summary?.totalBillings || 0).toLocaleString('en-IN')}`],
-        ['Releases', `Rs. ${(summary?.totalRenewals || 0).toLocaleString('en-IN')}`],
-        ['Takeovers', `Rs. ${(summary?.totalTakeovers || 0).toLocaleString('en-IN')}`],
-        ['Overall Cash', `Rs. ${overallCash.toLocaleString('en-IN')}`],
-      ];
-      const summaryColWidths = [contentWidth * 0.6, contentWidth * 0.4];
-      
-      yPos = drawTable(doc, margin, yPos, summaryHeaders, summaryRows, summaryColWidths);
-      yPos += 8;
-      checkPageBreak(30);
-      
-      // Physical Sales Transactions
-      doc.setFontSize(12);
-      doc.setFont('helvetica', 'bold');
-      doc.text('PHYSICAL SALES TRANSACTIONS', margin, yPos);
-      yPos += 8;
-      
-      if (transactions?.billings && transactions.billings.length > 0) {
-        const billingHeaders = ['Invoice No', 'Customer Name', 'Mobile', 'Amount', 'Date'];
-        const billingRows = transactions.billings.map(billing => {
-          const transDate = new Date(billing.createdAt || billing.date).toLocaleDateString('en-IN');
-          return [
-            billing.invoiceNo || 'N/A',
-            (billing.customer?.name || 'N/A').substring(0, 20),
-            (billing.customer?.mobile || 'N/A'),
-            `Rs. ${(billing.calculation?.finalPayout || billing.calculation?.editedAmount || 0).toLocaleString('en-IN')}`,
-            transDate
-          ];
+      // Report date formatting
+      const reportDateObj = new Date(date);
+      const reportDate = `${String(reportDateObj.getDate()).padStart(2, '0')}-${String(reportDateObj.getMonth() + 1).padStart(2, '0')}-${reportDateObj.getFullYear()}`;
+      const userId = user?._id ? String(user._id).slice(-6) : (user?.id ? String(user.id).slice(-6) : 'N/A');
+      const logoUrl = window.location.origin + `/images/${comp.logoFile}`;
+
+      // Combine all transactions (Physical, Release, TakeOver)
+      const allTransactions = [];
+      let transactionNumber = 1;
+
+      // Process Physical Sales (Billings)
+      if (transactions?.billings) {
+        transactions.billings.forEach(billing => {
+          const items = billing.goldDetails?.items || billing.calculation?.items || [];
+          if (items.length > 0) {
+            // Process each item individually (not grouped)
+            const itemEntries = [];
+            let totalGrossWeight = 0;
+            let totalNetWeight = 0;
+            let totalGrossAmount = 0;
+            
+            items.forEach(item => {
+              const gross = item.weight || 0;
+              const stone = item.stoneWeight || item.stone || 0;
+              const net = gross - stone;
+              const selectedRate = item.selectedRatePerGram || billing.calculation?.selectedRatePerGram || 0;
+              // Effective rate after 400 deduction: Rate shown = selectedRate - 400
+              const effectiveRate = selectedRate - DEDUCTION_PER_GRAM;
+              // Gross Amount = Net Weight * selectedRate (before deduction)
+              const grossAmount = net * selectedRate;
+              
+              totalGrossWeight += gross;
+              totalNetWeight += net;
+              totalGrossAmount += grossAmount;
+              
+              // Each item as separate sub-entry
+              const category = getPurityCategory(item.purityLabel);
+              itemEntries.push({
+                category: category,
+                grossWeight: gross,
+                netWeight: net,
+                grossAmount: grossAmount,
+                purity: item.purityLabel || 'N/A',
+                effectiveRate: effectiveRate
+              });
+            });
+
+            const netAmount = billing.calculation?.editedAmount || billing.calculation?.finalPayout || 0;
+            // Calculate weighted average purity
+            let totalPurityWeight = 0;
+            let totalPurityValue = 0;
+            itemEntries.forEach(item => {
+              const purityStr = item.purity || '';
+              const purityMatch = purityStr.match(/(\d+\.?\d*)\s*%/);
+              const purityNum = purityMatch ? parseFloat(purityMatch[1]) : parseFloat(purityStr.replace(/[^0-9.]/g, '')) || 0;
+              totalPurityWeight += item.netWeight;
+              totalPurityValue += purityNum * item.netWeight;
+            });
+            const avgPurity = totalPurityWeight > 0 ? (totalPurityValue / totalPurityWeight) : 0;
+            // Calculate weighted average effective rate (after 400 deduction)
+            // Effective rate = (Gross Amount - Total Deduction) / Net Weight
+            // Or: Average of (selectedRate - 400) weighted by net weight
+            let totalEffectiveRateWeight = 0;
+            let totalEffectiveRateValue = 0;
+            itemEntries.forEach(item => {
+              totalEffectiveRateWeight += item.netWeight;
+              totalEffectiveRateValue += item.effectiveRate * item.netWeight;
+            });
+            const avgEffectiveRate = totalEffectiveRateWeight > 0 ? (totalEffectiveRateValue / totalEffectiveRateWeight) : (items[0]?.selectedRatePerGram || billing.calculation?.selectedRatePerGram || 0) - DEDUCTION_PER_GRAM;
+            const margin = totalGrossAmount > 0 ? ((totalGrossAmount - netAmount) / totalGrossAmount) * 100 : 0;
+
+            allTransactions.push({
+              number: transactionNumber++,
+              billId: billing.invoiceNo || 'N/A',
+              date: new Date(billing.createdAt || billing.date).toISOString().split('T')[0],
+              grossWeight: totalGrossWeight,
+              netWeight: totalNetWeight,
+              grossAmount: totalGrossAmount,
+              netAmount: netAmount,
+              purity: avgPurity.toFixed(3),
+              rate: Math.round(avgEffectiveRate),
+              margin: margin.toFixed(2),
+              subEntries: itemEntries,
+              type: 'Physical'
+            });
+          } else {
+            // Single item or legacy format
+            const gross = billing.goldDetails?.weight || 0;
+            const stone = billing.goldDetails?.stoneWeight || billing.calculation?.stone || 0;
+            const net = gross - stone;
+            const selectedRate = billing.calculation?.selectedRatePerGram || 0;
+            // Effective rate after 400 deduction
+            const effectiveRate = selectedRate - DEDUCTION_PER_GRAM;
+            // Gross Amount = Net Weight * selectedRate (before deduction)
+            const grossAmount = net * selectedRate;
+            const netAmount = billing.calculation?.editedAmount || billing.calculation?.finalPayout || 0;
+            const purityLabel = billing.goldDetails?.purityLabel || 'N/A';
+            const purityMatch = purityLabel.match(/(\d+\.?\d*)\s*%/);
+            const purity = purityMatch ? parseFloat(purityMatch[1]) : parseFloat(purityLabel.replace(/[^0-9.]/g, '')) || 0;
+            const margin = grossAmount > 0 ? ((grossAmount - netAmount) / grossAmount) * 100 : 0;
+
+            allTransactions.push({
+              number: transactionNumber++,
+              billId: billing.invoiceNo || 'N/A',
+              date: new Date(billing.createdAt || billing.date).toISOString().split('T')[0],
+              grossWeight: gross,
+              netWeight: net,
+              grossAmount: grossAmount,
+              netAmount: netAmount,
+              purity: purity.toFixed(3),
+              rate: Math.round(effectiveRate),
+              margin: margin.toFixed(2),
+              subEntries: [{ category: getPurityCategory(purityLabel), grossWeight: gross, netWeight: net, grossAmount: grossAmount, purity: purityLabel, effectiveRate: effectiveRate }],
+              type: 'Physical'
+            });
+          }
         });
-        const billingColWidths = [35, 50, 30, 35, 30];
-        
-        yPos = drawTable(doc, margin, yPos, billingHeaders, billingRows, billingColWidths);
-      } else {
-        doc.setFontSize(10);
-        doc.setFont('helvetica', 'italic');
-        doc.text('No physical sales transactions for this date.', margin, yPos);
-        yPos += 6;
       }
-      
-      yPos += 8;
-      checkPageBreak(30);
-      
-      // Release Transactions
-      doc.setFontSize(12);
-      doc.setFont('helvetica', 'bold');
-      doc.text('RELEASE TRANSACTIONS', margin, yPos);
-      yPos += 8;
-      
-      if (transactions?.renewals && transactions.renewals.length > 0) {
-        const renewalHeaders = ['Renewal No', 'Customer Name', 'Bank Name', 'Loan Amount', 'Commission', 'Date'];
-        const renewalRows = transactions.renewals.map(renewal => {
-          const transDate = new Date(renewal.createdAt || renewal.date).toLocaleDateString('en-IN');
-          return [
-            renewal.renewalNo || 'N/A',
-            (renewal.customer?.name || 'N/A').substring(0, 18),
-            (renewal.bankDetails?.bankName || 'N/A').substring(0, 18),
-            `Rs. ${(renewal.renewalDetails?.renewalAmount || 0).toLocaleString('en-IN')}`,
-            `Rs. ${(renewal.renewalDetails?.commissionAmount || 0).toLocaleString('en-IN')}`,
-            transDate
-          ];
+
+      // Process Release Transactions (Renewals)
+      if (transactions?.renewals) {
+        transactions.renewals.forEach(renewal => {
+          const gross = renewal.goldDetails?.weight || 0;
+          const stone = renewal.goldDetails?.stoneWeight || 0;
+          const net = gross - stone;
+          const selectedRate = renewal.calculation?.selectedRatePerGram || 0;
+          // Effective rate after 400 deduction
+          const effectiveRate = selectedRate - DEDUCTION_PER_GRAM;
+          // Gross Amount = Net Weight * selectedRate (before deduction)
+          const grossAmount = net * selectedRate;
+          const netAmount = renewal.renewalDetails?.renewalAmount || 0;
+          const purityLabel = renewal.goldDetails?.purityLabel || 'N/A';
+          const purityMatch = purityLabel.match(/(\d+\.?\d*)\s*%/);
+          const purity = purityMatch ? parseFloat(purityMatch[1]) : parseFloat(purityLabel.replace(/[^0-9.]/g, '')) || 0;
+          const margin = renewal.renewalDetails?.commissionAmount || 0;
+          const marginPercent = grossAmount > 0 ? (margin / grossAmount) * 100 : 0;
+
+          allTransactions.push({
+            number: transactionNumber++,
+            billId: renewal.renewalNo || renewal.invoiceNo || 'N/A',
+            date: new Date(renewal.createdAt || renewal.date).toISOString().split('T')[0],
+            grossWeight: gross,
+            netWeight: net,
+            grossAmount: grossAmount,
+            netAmount: netAmount,
+            purity: purity.toFixed(3),
+            rate: Math.round(effectiveRate),
+            margin: marginPercent.toFixed(2),
+            subEntries: [{ category: getPurityCategory(purityLabel), grossWeight: gross, netWeight: net, grossAmount: grossAmount, purity: purityLabel, effectiveRate: effectiveRate }],
+            type: 'Release'
+          });
         });
-        const renewalColWidths = [30, 35, 35, 30, 30, 25];
-        
-        yPos = drawTable(doc, margin, yPos, renewalHeaders, renewalRows, renewalColWidths);
-      } else {
-        doc.setFontSize(10);
-        doc.setFont('helvetica', 'italic');
-        doc.text('No release transactions for this date.', margin, yPos);
-        yPos += 6;
       }
-      
-      yPos += 8;
-      checkPageBreak(30);
-      
-      // Takeover Transactions
-      doc.setFontSize(12);
-      doc.setFont('helvetica', 'bold');
-      doc.text('TAKEOVER TRANSACTIONS', margin, yPos);
-      yPos += 8;
-      
-      if (transactions?.takeovers && transactions.takeovers.length > 0) {
-        const takeoverHeaders = ['Takeover No', 'Customer Name', 'Bank Name', 'Amount', 'Date'];
-        const takeoverRows = transactions.takeovers.map(takeover => {
-          const transDate = new Date(takeover.createdAt || takeover.date).toLocaleDateString('en-IN');
-          return [
-            takeover.takeoverNo || 'N/A',
-            (takeover.customer?.name || 'N/A').substring(0, 25),
-            (takeover.bankDetails?.bankName || 'N/A').substring(0, 25),
-            `Rs. ${(takeover.takeoverDetails?.takeoverAmount || 0).toLocaleString('en-IN')}`,
-            transDate
-          ];
+
+      // Process Takeover Transactions
+      if (transactions?.takeovers) {
+        transactions.takeovers.forEach(takeover => {
+          const gross = takeover.goldDetails?.weight || 0;
+          const stone = takeover.goldDetails?.stoneWeight || 0;
+          const net = gross - stone;
+          const selectedRate = takeover.calculation?.selectedRatePerGram || 0;
+          // Effective rate after 400 deduction
+          const effectiveRate = selectedRate - DEDUCTION_PER_GRAM;
+          // Gross Amount = Net Weight * selectedRate (before deduction)
+          const grossAmount = net * selectedRate;
+          const netAmount = takeover.takeoverDetails?.takeoverAmount || 0;
+          const purityLabel = takeover.goldDetails?.purityLabel || 'N/A';
+          const purityMatch = purityLabel.match(/(\d+\.?\d*)\s*%/);
+          const purity = purityMatch ? parseFloat(purityMatch[1]) : parseFloat(purityLabel.replace(/[^0-9.]/g, '')) || 0;
+          const margin = grossAmount > 0 ? ((grossAmount - netAmount) / grossAmount) * 100 : 0;
+
+          allTransactions.push({
+            number: transactionNumber++,
+            billId: takeover.takeoverNo || takeover.invoiceNo || 'N/A',
+            date: new Date(takeover.createdAt || takeover.date).toISOString().split('T')[0],
+            grossWeight: gross,
+            netWeight: net,
+            grossAmount: grossAmount,
+            netAmount: netAmount,
+            purity: purity.toFixed(3),
+            rate: Math.round(effectiveRate),
+            margin: margin.toFixed(2),
+            subEntries: [{ category: getPurityCategory(purityLabel), grossWeight: gross, netWeight: net, grossAmount: grossAmount, purity: purityLabel, effectiveRate: effectiveRate }],
+            type: 'TakeOver'
+          });
         });
-        const takeoverColWidths = [35, 50, 50, 35, 30];
-        
-        yPos = drawTable(doc, margin, yPos, takeoverHeaders, takeoverRows, takeoverColWidths);
-      } else {
-        doc.setFontSize(10);
-        doc.setFont('helvetica', 'italic');
-        doc.text('No takeover transactions for this date.', margin, yPos);
-        yPos += 6;
       }
+
+      // Calculate summary totals
+      const totalPackets = allTransactions.length;
+      const totalGrossWeight = allTransactions.reduce((sum, t) => sum + t.grossWeight, 0);
+      const totalNetWeight = allTransactions.reduce((sum, t) => sum + t.netWeight, 0);
+      const totalGrossAmount = allTransactions.reduce((sum, t) => sum + t.grossAmount, 0);
+      const totalNetAmount = allTransactions.reduce((sum, t) => sum + t.netAmount, 0);
       
-      yPos += 8;
-      checkPageBreak(30);
-      
-      // Cash Entries
-      doc.setFontSize(12);
-      doc.setFont('helvetica', 'bold');
-      doc.text('CASH ENTRIES', margin, yPos);
-      yPos += 8;
-      
-      if (transactions?.cashEntries && transactions.cashEntries.length > 0) {
-        const cashHeaders = ['Type', 'Amount', 'Date', 'Added By'];
-        const cashRows = transactions.cashEntries.map(entry => {
-          const transDate = new Date(entry.createdAt).toLocaleDateString('en-IN');
-          const type = (entry.type || 'N/A').charAt(0).toUpperCase() + (entry.type || 'N/A').slice(1);
-          return [
-            type,
-            `Rs. ${entry.amount.toLocaleString('en-IN')}`,
-            transDate,
-            entry.addedBy?.name || 'N/A'
-          ];
+      let totalPurityWeight = 0;
+      let totalPurityValue = 0;
+      allTransactions.forEach(t => {
+        const purityNum = parseFloat(t.purity) || 0;
+        totalPurityWeight += t.netWeight;
+        totalPurityValue += purityNum * t.netWeight;
+      });
+      const avgPurity = totalPurityWeight > 0 ? (totalPurityValue / totalPurityWeight) : 0;
+      const avgMargin = totalGrossAmount > 0 ? ((totalGrossAmount - totalNetAmount) / totalGrossAmount) * 100 : 0;
+      const physicalCount = allTransactions.filter(t => t.type === 'Physical').length;
+      const releaseCount = allTransactions.filter(t => t.type === 'Release').length;
+
+      // Generate table rows HTML - EXACT MATCH to image format
+      let tableRowsHTML = '';
+      allTransactions.forEach(trans => {
+        const purityNum = parseFloat(trans.purity) || 0;
+        
+        // Main row
+        tableRowsHTML += `
+          <tr>
+            <td style="text-align:right; padding:4px; border:1px solid #000; font-size:11px;">${trans.number}</td>
+            <td style="text-align:left; padding:4px; border:1px solid #000; font-size:11px;">${trans.billId}</td>
+            <td style="text-align:right; padding:4px; border:1px solid #000; font-size:11px;">${trans.date}</td>
+            <td style="text-align:right; padding:4px; border:1px solid #000; font-size:11px;">${trans.grossWeight.toFixed(2)}</td>
+            <td style="text-align:right; padding:4px; border:1px solid #000; font-size:11px;">${trans.netWeight.toFixed(2)}</td>
+            <td style="text-align:right; padding:4px; border:1px solid #000; font-size:11px;">${Math.round(trans.grossAmount)}</td>
+            <td style="text-align:right; padding:4px; border:1px solid #000; font-size:11px;">${Math.round(trans.netAmount)}</td>
+            <td style="text-align:right; padding:4px; border:1px solid #000; font-size:11px;">${purityNum.toFixed(3)}</td>
+            <td style="text-align:right; padding:4px; border:1px solid #000; font-size:11px;">${trans.rate}</td>
+            <td style="text-align:right; padding:4px; border:1px solid #000; font-size:11px;">${trans.margin}%</td>
+          </tr>
+        `;
+
+        // Sub-entries - each item separately (not grouped)
+        trans.subEntries.forEach((item) => {
+          const purityMatch = item.purity.match(/(\d+\.?\d*)\s*%/);
+          const subPurity = purityMatch ? parseFloat(purityMatch[1]) : parseFloat(item.purity.replace(/[^0-9.]/g, '')) || 0;
+          
+          tableRowsHTML += `
+            <tr style="font-size:10px;">
+              <td style="text-align:left; padding:3px; border:1px solid #000; padding-left:10px;">${item.category}</td>
+              <td style="padding:3px; border:1px solid #000;"></td>
+              <td style="padding:3px; border:1px solid #000;"></td>
+              <td style="text-align:right; padding:3px; border:1px solid #000;">${item.grossWeight.toFixed(3)}</td>
+              <td style="text-align:right; padding:3px; border:1px solid #000;">${item.netWeight.toFixed(3)}</td>
+              <td style="text-align:right; padding:3px; border:1px solid #000;">${Math.round(item.grossAmount)}</td>
+              <td style="padding:3px; border:1px solid #000;"></td>
+              <td style="text-align:right; padding:3px; border:1px solid #000;">${subPurity.toFixed(2)}</td>
+              <td style="padding:3px; border:1px solid #000;"></td>
+              <td style="padding:3px; border:1px solid #000;"></td>
+            </tr>
+          `;
         });
-        const cashColWidths = [30, 40, 40, 60];
-        
-        yPos = drawTable(doc, margin, yPos, cashHeaders, cashRows, cashColWidths);
-      } else {
-        doc.setFontSize(10);
-        doc.setFont('helvetica', 'italic');
-        doc.text('No cash entries for this date.', margin, yPos);
-        yPos += 6;
-      }
-      
-      // Footer
-      const totalPages = doc.internal.pages.length - 1;
-      for (let i = 1; i <= totalPages; i++) {
-        doc.setPage(i);
-        doc.setFontSize(8);
-        doc.setFont('helvetica', 'italic');
-        doc.text(`Page ${i} of ${totalPages}`, pageWidth - margin, doc.internal.pageSize.getHeight() - 10, { align: 'right' });
-        doc.text('Generated by Sujana Gold System', margin, doc.internal.pageSize.getHeight() - 10);
-      }
-      
-      // Save PDF
-      doc.save(`daily-transactions-${date}.pdf`);
-      alert('Daily transactions PDF downloaded successfully!');
+      });
+
+      // Generate HTML
+      const html = `
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+          <meta charset="UTF-8" />
+          <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+          <title>Gold Send Report - ${reportDate}</title>
+          <style>
+            @media print {
+              .no-print { display: none; }
+              body { margin: 0; padding: 10mm; }
+              @page { margin: 10mm; }
+            }
+            body {
+              font-family: Arial, Helvetica, sans-serif;
+              margin: 0;
+              padding: 20px;
+              font-size: 11px;
+              line-height: 1.4;
+            }
+            .no-print {
+              text-align: center;
+              margin: 10px 0 20px 0;
+            }
+            .no-print button {
+              padding: 10px 20px;
+              background: #d4a017;
+              border: none;
+              color: white;
+              font-size: 16px;
+              cursor: pointer;
+              border-radius: 4px;
+            }
+            .no-print button:hover {
+              background: #b89015;
+            }
+            .report-container {
+              max-width: 210mm;
+              margin: 0 auto;
+            }
+            .header-section {
+              margin-bottom: 15px;
+            }
+            .header-top {
+              display: flex;
+              align-items: flex-start;
+              justify-content: space-between;
+              margin-bottom: 10px;
+            }
+            .logo-container {
+              width: 80px;
+              height: 60px;
+              flex-shrink: 0;
+            }
+            .logo-container img {
+              width: 100%;
+              height: 100%;
+              object-fit: contain;
+            }
+            .header-right {
+              text-align: right;
+              display: flex;
+              flex-direction: column;
+              align-items: flex-end;
+            }
+            .company-name {
+              font-size: 11px;
+              font-weight: normal;
+              text-transform: lowercase;
+              margin: 0;
+              margin-bottom: 5px;
+            }
+            .report-date {
+              font-size: 10px;
+              margin: 0;
+              margin-bottom: 8px;
+            }
+            .report-title {
+              text-align: right;
+              font-size: 13px;
+              font-weight: bold;
+              margin: 0;
+              letter-spacing: 1px;
+            }
+            .report-details {
+              display: flex;
+              justify-content: space-between;
+              margin-bottom: 12px;
+              font-size: 10px;
+              padding: 0 5px;
+            }
+            .report-details span {
+              margin-right: 20px;
+            }
+            table {
+              width: 100%;
+              border-collapse: collapse;
+              margin-bottom: 15px;
+              font-size: 10px;
+            }
+            table th {
+              background-color: #f0f0f0;
+              font-weight: bold;
+              padding: 6px 4px;
+              border: 1px solid #000;
+              text-align: left;
+              font-size: 9px;
+            }
+            table th:nth-child(1),
+            table th:nth-child(3),
+            table th:nth-child(n+4) {
+              text-align: right;
+            }
+            table td {
+              padding: 5px 4px;
+              border: 1px solid #000;
+              font-size: 10px;
+            }
+            .signature-section {
+              margin-top: 40px;
+              padding-top: 20px;
+              border-top: 1px solid #ccc;
+            }
+            .signature-line {
+              width: 200px;
+              border-top: 1px solid #000;
+              margin-top: 50px;
+              margin-left: auto;
+            }
+            .signature-label {
+              text-align: right;
+              margin-top: 5px;
+              font-size: 10px;
+              font-weight: bold;
+            }
+          </style>
+        </head>
+        <body>
+          <div class="no-print">
+            <button onclick="window.print()">🖨️ Print Report</button>
+          </div>
+          <div class="report-container">
+            <div class="header-section">
+              <div class="header-top">
+                <div class="logo-container">
+                  <img src="${logoUrl}" alt="${comp.companyName}" />
+                </div>
+                <div class="header-right">
+                  <div class="report-title">GOLD SEND REPORT</div>
+                  <div class="company-name">${comp.companyName.toLowerCase()}</div>
+                  <div class="report-date">Date: ${reportDate}</div>
+                </div>
+              </div>
+              <div class="report-details">
+                <span>Branch: ${comp.branch || comp.addressLine1 || 'N/A'}</span>
+                <span>BM: ${user?.name || 'N/A'} / ${userId}</span>
+              </div>
+            </div>
+            <table>
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Bill ID</th>
+                  <th>Date</th>
+                  <th>Gross Weight</th>
+                  <th>Net Weight</th>
+                  <th>Gross Amount</th>
+                  <th>Net Amount</th>
+                  <th>Purity</th>
+                  <th>Rate</th>
+                  <th>Margin</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${tableRowsHTML}
+              </tbody>
+            </table>
+            <div class="signature-section">
+              <div class="signature-line"></div>
+              <div class="signature-label">Managing Director</div>
+            </div>
+          </div>
+        </body>
+        </html>
+      `;
+
+      const win = window.open('', '_blank', 'width=1200,height=800');
+      win.document.title = `Gold Send Report - ${reportDate}`;
+      win.document.write(html);
+      win.document.close();
     } catch (error) {
-      console.error('Error downloading daily transactions:', error);
-      alert('Failed to download daily transactions. Please try again.');
+      console.error('Error printing daily transactions:', error);
+      alert('Failed to print daily transactions. Please try again.');
     }
   };
 
-  // Calculate today's totals
+  // Calculate today's totals (using 4 AM reset logic)
   const todayTotals = useMemo(() => {
+    const todayStart = getTodayStart();
+    const todayEnd = getTodayEnd();
+    
     const initialCash = todayTransactions
       .filter((e) => e.type === 'initial')
       .reduce((acc, curr) => acc + curr.amount, 0);
@@ -281,13 +537,10 @@ const CashVault = ({
     const remainingCash = initialCash - totalDeductions;
     
     // Calculate margin from billings (commission + hidden deductions)
+    // Filter billings using 4 AM reset logic
     const todayBillings = billings?.filter(b => {
       const billingDate = new Date(b.createdAt || b.date);
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      const tomorrow = new Date(today);
-      tomorrow.setDate(tomorrow.getDate() + 1);
-      return billingDate >= today && billingDate < tomorrow;
+      return billingDate >= todayStart && billingDate < todayEnd;
     }) || [];
     
     // Margin = Total amount paid - (Gold value at purchase)
@@ -423,7 +676,7 @@ const CashVault = ({
       {/* Cash Summary - Today's Data Only */}
       <div className="bg-yellow-50 border border-yellow-200 p-3 rounded-lg mb-4">
         <p className="text-sm text-yellow-800">
-          <strong>Note:</strong> Showing only today's transactions. Historical data is available in Analytics and Expense Tracker.
+          <strong>Note:</strong> Showing only today's transactions (resets at 4 AM). Historical data is available in Analytics, Expense Tracker, and Transactions.
         </p>
       </div>
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-6">
@@ -494,11 +747,11 @@ const CashVault = ({
           <div className="flex justify-between items-center mb-4">
             <h3 className="font-semibold text-lg">Daily Transactions Summary ({dailyTransactions.date})</h3>
             <button
-              onClick={() => downloadDailyTransactions(dailyTransactions)}
+              onClick={() => printDailyTransactions(dailyTransactions)}
               className="flex items-center gap-2 bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-md font-medium transition duration-300 text-sm"
             >
-              <FaDownload />
-              Download PDF
+              <FaPrint />
+              Print Report
             </button>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">

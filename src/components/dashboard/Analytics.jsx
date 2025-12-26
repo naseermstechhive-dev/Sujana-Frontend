@@ -12,6 +12,7 @@ import {
   Legend,
 } from 'chart.js';
 import { Bar, Line, Pie } from 'react-chartjs-2';
+import { useAdmin } from '../../contexts/AdminContext';
 
 ChartJS.register(
   CategoryScale,
@@ -25,185 +26,296 @@ ChartJS.register(
   Legend
 );
 
+const DEDUCTION_PER_GRAM = 400;
+
 const Analytics = ({ billings, renewals, takeovers, cashEntries }) => {
-  const [monthlyData, setMonthlyData] = useState({});
-  const [dailyData, setDailyData] = useState({});
-  const [overviewData, setOverviewData] = useState({});
+  const { goldPrices } = useAdmin();
+  const [viewMode, setViewMode] = useState('daily'); // daily, weekly, monthly
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
-  const [dayData, setDayData] = useState({});
+  const [selectedWeek, setSelectedWeek] = useState('');
+  const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().slice(0, 7));
+  
+  const [dailyData, setDailyData] = useState({});
+  const [weeklyData, setWeeklyData] = useState({});
+  const [monthlyData, setMonthlyData] = useState({});
+  const [overviewData, setOverviewData] = useState({});
+
+  // Get average gold rate for profit calculations
+  const getAverageGoldRate = () => {
+    const rates = Object.values(goldPrices || {}).filter(r => r > 0);
+    return rates.length > 0 ? rates.reduce((a, b) => a + b, 0) / rates.length : 11000;
+  };
+
+  // Calculate profit in gold (grams)
+  const calculateProfitInGold = (billing) => {
+    const items = billing.goldDetails?.items || billing.calculation?.items || [];
+    if (items.length > 0) {
+      let totalProfitGold = 0;
+      items.forEach(item => {
+        const net = (item.weight || 0) - (item.stoneWeight || item.stone || 0);
+        const rate = item.selectedRatePerGram || billing.calculation?.selectedRatePerGram || 0;
+        // Profit in gold = (Deduction per gram / Rate) × Net Weight
+        // This represents how much gold value we gained from the deduction
+        if (rate > 0) {
+          totalProfitGold += (DEDUCTION_PER_GRAM / rate) * net;
+        }
+      });
+      return totalProfitGold;
+    } else {
+      // Legacy single item
+      const net = (billing.goldDetails?.weight || 0) - (billing.goldDetails?.stoneWeight || billing.calculation?.stone || 0);
+      const rate = billing.calculation?.selectedRatePerGram || 0;
+      if (rate > 0) {
+        return (DEDUCTION_PER_GRAM / rate) * net;
+      }
+    }
+    return 0;
+  };
+
+  // Calculate commission profit in gold
+  const calculateCommissionInGold = (renewal) => {
+    const commission = renewal.renewalDetails?.commissionAmount || 0;
+    const avgRate = getAverageGoldRate();
+    return avgRate > 0 ? commission / avgRate : 0;
+  };
+
+  // Calculate takeover profit in gold
+  const calculateTakeoverProfitInGold = (takeover) => {
+    const profitLoss = takeover.takeoverDetails?.profitLoss || 0;
+    const avgRate = getAverageGoldRate();
+    return avgRate > 0 ? Math.max(0, profitLoss / avgRate) : 0;
+  };
 
   useEffect(() => {
-    processData();
-  }, [billings, renewals, takeovers, cashEntries]);
+    processAllData();
+  }, [billings, renewals, takeovers, cashEntries, goldPrices]);
 
   useEffect(() => {
+    if (viewMode === 'daily') {
     processDayData();
-  }, [selectedDate, billings, renewals, takeovers, cashEntries]);
+    } else if (viewMode === 'weekly') {
+      processWeekData();
+    } else if (viewMode === 'monthly') {
+      processMonthData();
+    }
+  }, [selectedDate, selectedWeek, selectedMonth, viewMode, billings, renewals, takeovers]);
 
-  const processData = () => {
-    // Monthly Analytics
+  const processAllData = () => {
+    // Process all historical data (nothing resets)
+    const daily = {};
+    const weekly = {};
     const monthly = {};
-    const currentYear = new Date().getFullYear();
+    
+    let totalGoldBought = 0;
+    let totalProfitGold = 0;
+    let totalCommissionGold = 0;
+    let totalTakeoverProfitGold = 0;
+    let totalCashPaid = 0;
+    let totalTransactions = 0;
 
-    // Process Billings
+    // Process Billings (Physical Sales - buying gold from customers)
     billings.forEach(billing => {
       const date = new Date(billing.createdAt || billing.date);
-      if (date.getFullYear() === currentYear) {
-        const month = date.toLocaleString('default', { month: 'short' });
-        if (!monthly[month]) monthly[month] = { billings: 0, renewals: 0, takeovers: 0, cash: 0, goldWeight: 0 };
-        monthly[month].billings += billing.calculation?.finalPayout || 0;
-        monthly[month].goldWeight += billing.goldDetails?.weight || 0;
+      const dayKey = date.toISOString().split('T')[0];
+      const weekKey = getWeekKey(date);
+      const monthKey = date.toISOString().slice(0, 7);
+
+      const items = billing.goldDetails?.items || billing.calculation?.items || [];
+      let goldWeight = 0;
+      if (items.length > 0) {
+        items.forEach(item => {
+          goldWeight += (item.weight || 0) - (item.stoneWeight || item.stone || 0);
+        });
+      } else {
+        goldWeight = (billing.goldDetails?.weight || 0) - (billing.goldDetails?.stoneWeight || billing.calculation?.stone || 0);
       }
+
+      const profitGold = calculateProfitInGold(billing);
+      const cashPaid = billing.calculation?.editedAmount || billing.calculation?.finalPayout || 0;
+
+      // Daily
+      if (!daily[dayKey]) daily[dayKey] = { goldBought: 0, profitGold: 0, commissionGold: 0, takeoverProfitGold: 0, cashPaid: 0, transactions: 0 };
+      daily[dayKey].goldBought += goldWeight;
+      daily[dayKey].profitGold += profitGold;
+      daily[dayKey].cashPaid += cashPaid;
+      daily[dayKey].transactions += 1;
+
+      // Weekly
+      if (!weekly[weekKey]) weekly[weekKey] = { goldBought: 0, profitGold: 0, commissionGold: 0, takeoverProfitGold: 0, cashPaid: 0, transactions: 0 };
+      weekly[weekKey].goldBought += goldWeight;
+      weekly[weekKey].profitGold += profitGold;
+      weekly[weekKey].cashPaid += cashPaid;
+      weekly[weekKey].transactions += 1;
+
+      // Monthly
+      if (!monthly[monthKey]) monthly[monthKey] = { goldBought: 0, profitGold: 0, commissionGold: 0, takeoverProfitGold: 0, cashPaid: 0, transactions: 0 };
+      monthly[monthKey].goldBought += goldWeight;
+      monthly[monthKey].profitGold += profitGold;
+      monthly[monthKey].cashPaid += cashPaid;
+      monthly[monthKey].transactions += 1;
+
+      totalGoldBought += goldWeight;
+      totalProfitGold += profitGold;
+      totalCashPaid += cashPaid;
+      totalTransactions += 1;
     });
 
-    // Process Renewals
+    // Process Renewals (Commission is profit)
     renewals.forEach(renewal => {
       const date = new Date(renewal.createdAt);
-      if (date.getFullYear() === currentYear) {
-        const month = date.toLocaleString('default', { month: 'short' });
-        if (!monthly[month]) monthly[month] = { billings: 0, renewals: 0, takeovers: 0, cash: 0 };
-        monthly[month].renewals += renewal.renewalDetails?.commissionAmount || 0;
-      }
+      const dayKey = date.toISOString().split('T')[0];
+      const weekKey = getWeekKey(date);
+      const monthKey = date.toISOString().slice(0, 7);
+
+      const commissionGold = calculateCommissionInGold(renewal);
+      const cashPaid = renewal.renewalDetails?.renewalAmount || 0;
+
+      if (!daily[dayKey]) daily[dayKey] = { goldBought: 0, profitGold: 0, commissionGold: 0, takeoverProfitGold: 0, cashPaid: 0, transactions: 0 };
+      daily[dayKey].commissionGold += commissionGold;
+      daily[dayKey].cashPaid += cashPaid;
+      daily[dayKey].transactions += 1;
+
+      if (!weekly[weekKey]) weekly[weekKey] = { goldBought: 0, profitGold: 0, commissionGold: 0, takeoverProfitGold: 0, cashPaid: 0, transactions: 0 };
+      weekly[weekKey].commissionGold += commissionGold;
+      weekly[weekKey].cashPaid += cashPaid;
+      weekly[weekKey].transactions += 1;
+
+      if (!monthly[monthKey]) monthly[monthKey] = { goldBought: 0, profitGold: 0, commissionGold: 0, takeoverProfitGold: 0, cashPaid: 0, transactions: 0 };
+      monthly[monthKey].commissionGold += commissionGold;
+      monthly[monthKey].cashPaid += cashPaid;
+      monthly[monthKey].transactions += 1;
+
+      totalCommissionGold += commissionGold;
+      totalCashPaid += cashPaid;
+      totalTransactions += 1;
     });
 
     // Process Takeovers
     takeovers.forEach(takeover => {
       const date = new Date(takeover.createdAt);
-      if (date.getFullYear() === currentYear) {
-        const month = date.toLocaleString('default', { month: 'short' });
-        if (!monthly[month]) monthly[month] = { billings: 0, renewals: 0, takeovers: 0, cash: 0 };
-        monthly[month].takeovers += takeover.takeoverDetails?.takeoverAmount || 0;
-      }
-    });
+      const dayKey = date.toISOString().split('T')[0];
+      const weekKey = getWeekKey(date);
+      const monthKey = date.toISOString().slice(0, 7);
 
-    // Process Cash
-    cashEntries.forEach(entry => {
-      const date = new Date(entry.createdAt);
-      if (date.getFullYear() === currentYear) {
-        const month = date.toLocaleString('default', { month: 'short' });
-        if (!monthly[month]) monthly[month] = { billings: 0, renewals: 0, takeovers: 0, cash: 0 };
-        monthly[month].cash += entry.amount;
-      }
-    });
+      const profitGold = calculateTakeoverProfitInGold(takeover);
+      const cashPaid = takeover.takeoverDetails?.takeoverAmount || 0;
 
-    setMonthlyData(monthly);
+      if (!daily[dayKey]) daily[dayKey] = { goldBought: 0, profitGold: 0, commissionGold: 0, takeoverProfitGold: 0, cashPaid: 0, transactions: 0 };
+      daily[dayKey].takeoverProfitGold += profitGold;
+      daily[dayKey].cashPaid += cashPaid;
+      daily[dayKey].transactions += 1;
 
-    // Daily Analytics (last 30 days)
-    const daily = {};
-    const thirtyDaysAgo = new Date();
-    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+      if (!weekly[weekKey]) weekly[weekKey] = { goldBought: 0, profitGold: 0, commissionGold: 0, takeoverProfitGold: 0, cashPaid: 0, transactions: 0 };
+      weekly[weekKey].takeoverProfitGold += profitGold;
+      weekly[weekKey].cashPaid += cashPaid;
+      weekly[weekKey].transactions += 1;
 
-    billings.forEach(billing => {
-      const date = new Date(billing.createdAt || billing.date);
-      if (date >= thirtyDaysAgo) {
-        const day = date.toISOString().split('T')[0];
-        if (!daily[day]) daily[day] = { billings: 0, count: 0, goldWeight: 0 };
-        daily[day].billings += billing.calculation?.finalPayout || 0;
-        daily[day].count += 1;
-        daily[day].goldWeight += billing.goldDetails?.weight || 0;
-      }
+      if (!monthly[monthKey]) monthly[monthKey] = { goldBought: 0, profitGold: 0, commissionGold: 0, takeoverProfitGold: 0, cashPaid: 0, transactions: 0 };
+      monthly[monthKey].takeoverProfitGold += profitGold;
+      monthly[monthKey].cashPaid += cashPaid;
+      monthly[monthKey].transactions += 1;
+
+      totalTakeoverProfitGold += profitGold;
+      totalCashPaid += cashPaid;
+      totalTransactions += 1;
     });
 
     setDailyData(daily);
-
-    // Overview Data
-    const totalBillings = billings.reduce((sum, b) => sum + (b.calculation?.finalPayout || 0), 0);
-    const totalRenewals = renewals.reduce((sum, r) => sum + (r.renewalDetails?.commissionAmount || 0), 0);
-    const totalTakeovers = takeovers.reduce((sum, t) => sum + (t.takeoverDetails?.takeoverAmount || 0), 0);
-    const totalCash = cashEntries.reduce((sum, c) => sum + c.amount, 0);
+    setWeeklyData(weekly);
+    setMonthlyData(monthly);
 
     setOverviewData({
-      totalBillings,
-      totalRenewals,
-      totalTakeovers,
-      totalCash,
-      totalTransactions: billings.length + renewals.length + takeovers.length
+      totalGoldBought,
+      totalProfitGold: totalProfitGold, // Physical sales profit
+      totalCommissionGold,
+      totalTakeoverProfitGold,
+      totalAllProfitGold: totalProfitGold + totalCommissionGold + totalTakeoverProfitGold, // All profit combined
+      totalCashPaid,
+      totalTransactions,
     });
+  };
+
+  const getWeekKey = (date) => {
+    const d = new Date(date);
+    d.setDate(d.getDate() - d.getDay()); // Start of week (Sunday)
+    return d.toISOString().split('T')[0];
   };
 
   const processDayData = () => {
     const day = selectedDate;
-    const dayBillings = billings.filter(b => new Date(b.createdAt || b.date).toISOString().split('T')[0] === day);
-    const dayRenewals = renewals.filter(r => new Date(r.createdAt).toISOString().split('T')[0] === day);
-    const dayTakeovers = takeovers.filter(t => new Date(t.createdAt).toISOString().split('T')[0] === day);
-    const dayCash = cashEntries.filter(c => new Date(c.createdAt).toISOString().split('T')[0] === day);
-
-    const totalSales = dayBillings.reduce((sum, b) => sum + (b.calculation?.finalPayout || 0), 0);
-    const totalRenewals = dayRenewals.reduce((sum, r) => sum + (r.renewalDetails?.commissionAmount || 0), 0);
-    const totalTakeovers = dayTakeovers.reduce((sum, t) => sum + (t.takeoverDetails?.takeoverAmount || 0), 0);
-    const totalCash = dayCash.reduce((sum, c) => sum + c.amount, 0);
-    const totalGoldWeight = dayBillings.reduce((sum, b) => sum + (b.goldDetails?.weight || 0), 0);
-    const totalTransactions = dayBillings.length + dayRenewals.length + dayTakeovers.length;
-
-    setDayData({
-      totalSales,
-      totalRenewals,
-      totalTakeovers,
-      totalCash,
-      totalGoldWeight,
-      totalTransactions,
-      billingsCount: dayBillings.length,
-      renewalsCount: dayRenewals.length,
-      takeoversCount: dayTakeovers.length,
-    });
+    const dayData = dailyData[day] || { goldBought: 0, profitGold: 0, commissionGold: 0, takeoverProfitGold: 0, cashPaid: 0, transactions: 0 };
+    return dayData;
   };
 
-  const monthlyChartData = {
-    labels: Object.keys(monthlyData),
+  const processWeekData = () => {
+    const week = selectedWeek || getWeekKey(new Date());
+    const weekData = weeklyData[week] || { goldBought: 0, profitGold: 0, commissionGold: 0, takeoverProfitGold: 0, cashPaid: 0, transactions: 0 };
+    return weekData;
+  };
+
+  const processMonthData = () => {
+    const month = selectedMonth;
+    const monthData = monthlyData[month] || { goldBought: 0, profitGold: 0, commissionGold: 0, takeoverProfitGold: 0, cashPaid: 0, transactions: 0 };
+    return monthData;
+  };
+
+  const getCurrentViewData = () => {
+    if (viewMode === 'daily') return processDayData();
+    if (viewMode === 'weekly') return processWeekData();
+    return processMonthData();
+  };
+
+  const currentData = getCurrentViewData();
+  const totalProfitGold = (currentData.profitGold || 0) + (currentData.commissionGold || 0) + (currentData.takeoverProfitGold || 0);
+
+  // Chart data
+  const profitChartData = {
+    labels: Object.keys(monthlyData).sort(),
     datasets: [
       {
-        label: 'Physical Sales',
-        data: Object.values(monthlyData).map(d => d.billings),
+        label: 'Profit in Gold (g)',
+        data: Object.keys(monthlyData).sort().map(month => {
+          const data = monthlyData[month];
+          return (data.profitGold || 0) + (data.commissionGold || 0) + (data.takeoverProfitGold || 0);
+        }),
         backgroundColor: 'rgba(255, 193, 7, 0.6)',
         borderColor: 'rgba(255, 193, 7, 1)',
-        borderWidth: 1,
-      },
-      {
-        label: 'Renewals',
-        data: Object.values(monthlyData).map(d => d.renewals),
-        backgroundColor: 'rgba(0, 123, 255, 0.6)',
-        borderColor: 'rgba(0, 123, 255, 1)',
-        borderWidth: 1,
-      },
-      {
-        label: 'Takeovers',
-        data: Object.values(monthlyData).map(d => d.takeovers),
-        backgroundColor: 'rgba(220, 53, 69, 0.6)',
-        borderColor: 'rgba(220, 53, 69, 1)',
-        borderWidth: 1,
+        borderWidth: 2,
       },
     ],
   };
 
-  const dailyChartData = {
-    labels: Object.keys(dailyData).sort(),
+  const goldBoughtChartData = {
+    labels: Object.keys(monthlyData).sort(),
     datasets: [
       {
-        label: 'Daily Sales Amount',
-        data: Object.keys(dailyData).sort().map(day => dailyData[day].billings),
+        label: 'Gold Bought (g)',
+        data: Object.keys(monthlyData).sort().map(month => monthlyData[month].goldBought || 0),
+        backgroundColor: 'rgba(40, 167, 69, 0.6)',
         borderColor: 'rgba(40, 167, 69, 1)',
-        backgroundColor: 'rgba(40, 167, 69, 0.1)',
-        tension: 0.1,
+        borderWidth: 2,
       },
     ],
   };
 
-  const pieChartData = {
-    labels: ['Physical Sales', 'Renewals', 'Takeovers', 'Cash Transactions'],
+  const profitBreakdownData = {
+    labels: ['Physical Sales Profit', 'Commission Profit', 'Takeover Profit'],
     datasets: [
       {
-        data: [overviewData.totalBillings, overviewData.totalRenewals, overviewData.totalTakeovers, overviewData.totalCash],
+        data: [
+          (overviewData.totalProfitGold || 0),
+          (overviewData.totalCommissionGold || 0),
+          (overviewData.totalTakeoverProfitGold || 0),
+        ],
         backgroundColor: [
           'rgba(255, 193, 7, 0.8)',
           'rgba(0, 123, 255, 0.8)',
           'rgba(220, 53, 69, 0.8)',
-          'rgba(40, 167, 69, 0.8)',
         ],
         borderColor: [
           'rgba(255, 193, 7, 1)',
           'rgba(0, 123, 255, 1)',
           'rgba(220, 53, 69, 1)',
-          'rgba(40, 167, 69, 1)',
         ],
         borderWidth: 1,
       },
@@ -211,170 +323,160 @@ const Analytics = ({ billings, renewals, takeovers, cashEntries }) => {
   };
 
   return (
-    <div>
-      <h2 className="text-2xl font-bold mb-4">Analytics Dashboard</h2>
-      <p className="text-gray-600 mb-6">Comprehensive analytics and insights for your gold trading operations.</p>
+    <div className="space-y-6">
+      <div className="bg-gradient-to-r from-yellow-500 to-yellow-600 p-6 rounded-xl text-white shadow-lg">
+        <h2 className="text-3xl font-bold mb-2">📊 Analytics Dashboard</h2>
+        <p className="text-yellow-100">Complete business analytics with profit tracking in gold</p>
+      </div>
 
-      {/* Search Daily Analytics */}
-      <div className="bg-gray-50 p-4 rounded-lg mb-6">
-        <h3 className="font-semibold text-lg mb-4">Search Daily Analytics</h3>
-        <div className="flex flex-col sm:flex-row gap-4">
+      {/* View Mode Selector */}
+      <div className="bg-white p-4 rounded-lg shadow-md">
+        <div className="flex flex-wrap gap-2 mb-4">
+          <button
+            onClick={() => setViewMode('daily')}
+            className={`px-6 py-2 rounded-lg font-medium transition-all ${
+              viewMode === 'daily'
+                ? 'bg-yellow-500 text-white shadow-lg'
+                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+            }`}
+          >
+            Daily
+          </button>
+          <button
+            onClick={() => setViewMode('weekly')}
+            className={`px-6 py-2 rounded-lg font-medium transition-all ${
+              viewMode === 'weekly'
+                ? 'bg-yellow-500 text-white shadow-lg'
+                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+            }`}
+          >
+            Weekly
+          </button>
+          <button
+            onClick={() => setViewMode('monthly')}
+            className={`px-6 py-2 rounded-lg font-medium transition-all ${
+              viewMode === 'monthly'
+                ? 'bg-yellow-500 text-white shadow-lg'
+                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+            }`}
+          >
+            Monthly
+          </button>
+        </div>
+
+        {viewMode === 'daily' && (
           <input
             type="date"
             value={selectedDate}
             onChange={(e) => setSelectedDate(e.target.value)}
-            className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-400"
+            className="w-full md:w-auto px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-yellow-500"
           />
-          <button
-            onClick={() => processDayData()}
-            className="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-md font-medium transition duration-300"
-          >
-            Search
-          </button>
+        )}
+        {viewMode === 'weekly' && (
+          <input
+            type="week"
+            value={selectedWeek}
+            onChange={(e) => setSelectedWeek(e.target.value)}
+            className="w-full md:w-auto px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-yellow-500"
+          />
+        )}
+        {viewMode === 'monthly' && (
+          <input
+            type="month"
+            value={selectedMonth}
+            onChange={(e) => setSelectedMonth(e.target.value)}
+            className="w-full md:w-auto px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-yellow-500"
+          />
+        )}
+      </div>
+
+      {/* Current View Summary Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="bg-gradient-to-br from-green-400 to-green-600 p-6 rounded-xl text-white shadow-lg">
+          <h4 className="text-sm font-semibold mb-2 opacity-90">Gold Bought</h4>
+          <p className="text-3xl font-bold">{currentData.goldBought?.toFixed(3) || 0} g</p>
+          <p className="text-sm mt-2 opacity-75">{currentData.transactions || 0} transactions</p>
+        </div>
+        <div className="bg-gradient-to-br from-yellow-400 to-yellow-600 p-6 rounded-xl text-white shadow-lg">
+          <h4 className="text-sm font-semibold mb-2 opacity-90">Total Profit (Gold)</h4>
+          <p className="text-3xl font-bold">{totalProfitGold.toFixed(3)} g</p>
+          <p className="text-sm mt-2 opacity-75">All profit sources</p>
+        </div>
+        <div className="bg-gradient-to-br from-blue-400 to-blue-600 p-6 rounded-xl text-white shadow-lg">
+          <h4 className="text-sm font-semibold mb-2 opacity-90">Cash Paid</h4>
+          <p className="text-3xl font-bold">₹{currentData.cashPaid?.toLocaleString('en-IN') || 0}</p>
+          <p className="text-sm mt-2 opacity-75">Total payments</p>
+        </div>
+        <div className="bg-gradient-to-br from-purple-400 to-purple-600 p-6 rounded-xl text-white shadow-lg">
+          <h4 className="text-sm font-semibold mb-2 opacity-90">Transactions</h4>
+          <p className="text-3xl font-bold">{currentData.transactions || 0}</p>
+          <p className="text-sm mt-2 opacity-75">Total count</p>
         </div>
       </div>
 
-      {/* Daily Analytics Display */}
-      <div className="bg-white p-6 rounded-lg shadow-lg mb-8">
-        <h3 className="text-lg font-semibold mb-4">Daily Analytics for {new Date(selectedDate).toLocaleDateString('en-IN', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-          <div className="bg-yellow-50 p-4 rounded-lg border border-yellow-200 shadow-sm">
-            <h4 className="font-semibold text-yellow-800">Total Sales</h4>
-            <p className="text-2xl font-bold text-yellow-600">₹{dayData.totalSales?.toLocaleString('en-IN')}</p>
-            <p className="text-sm text-gray-600">{dayData.billingsCount} transactions</p>
+      {/* Profit Breakdown */}
+      <div className="bg-white p-6 rounded-xl shadow-lg">
+        <h3 className="text-xl font-bold mb-4">Profit Breakdown ({viewMode})</h3>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+          <div className="bg-yellow-50 p-4 rounded-lg border border-yellow-200">
+            <h4 className="font-semibold text-yellow-800 mb-2">Physical Sales Profit</h4>
+            <p className="text-2xl font-bold text-yellow-600">{currentData.profitGold?.toFixed(3) || 0} g</p>
+            <p className="text-sm text-gray-600 mt-1">From 400/g deduction</p>
           </div>
-          <div className="bg-blue-50 p-4 rounded-lg border border-blue-200 shadow-sm">
-            <h4 className="font-semibold text-blue-800">Renewals</h4>
-            <p className="text-2xl font-bold text-blue-600">₹{dayData.totalRenewals?.toLocaleString('en-IN')}</p>
-            <p className="text-sm text-gray-600">{dayData.renewalsCount} transactions</p>
+          <div className="bg-blue-50 p-4 rounded-lg border border-blue-200">
+            <h4 className="font-semibold text-blue-800 mb-2">Commission Profit</h4>
+            <p className="text-2xl font-bold text-blue-600">{currentData.commissionGold?.toFixed(3) || 0} g</p>
+            <p className="text-sm text-gray-600 mt-1">From renewals</p>
           </div>
-          <div className="bg-red-50 p-4 rounded-lg border border-red-200 shadow-sm">
-            <h4 className="font-semibold text-red-800">Takeovers</h4>
-            <p className="text-2xl font-bold text-red-600">₹{dayData.totalTakeovers?.toLocaleString('en-IN')}</p>
-            <p className="text-sm text-gray-600">{dayData.takeoversCount} transactions</p>
-          </div>
-          <div className="bg-green-50 p-4 rounded-lg border border-green-200 shadow-sm">
-            <h4 className="font-semibold text-green-800">Gold Weight Sold</h4>
-            <p className="text-2xl font-bold text-green-600">{dayData.totalGoldWeight?.toFixed(2)} g</p>
-            <p className="text-sm text-gray-600">Total assets</p>
-          </div>
-        </div>
-
-        {/* Daily Transactions Charts */}
-        <div className="mt-6 grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div>
-            <h4 className="text-md font-semibold mb-4">Transaction Amounts</h4>
-            <Bar
-              data={{
-                labels: ['Physical Sales', 'Renewals', 'Takeovers'],
-                datasets: [
-                  {
-                    label: 'Amount (₹)',
-                    data: [dayData.totalSales || 0, dayData.totalRenewals || 0, dayData.totalTakeovers || 0],
-                    backgroundColor: [
-                      'rgba(255, 193, 7, 0.8)',
-                      'rgba(0, 123, 255, 0.8)',
-                      'rgba(220, 53, 69, 0.8)',
-                    ],
-                    borderColor: [
-                      'rgba(255, 193, 7, 1)',
-                      'rgba(0, 123, 255, 1)',
-                      'rgba(220, 53, 69, 1)',
-                    ],
-                    borderWidth: 1,
-                  },
-                ],
-              }}
-              options={{
-                responsive: true,
-                plugins: {
-                  legend: { position: 'top' },
-                  title: { display: true, text: 'Amounts' },
-                },
-                scales: {
-                  y: {
-                    beginAtZero: true,
-                    ticks: {
-                      callback: function(value) {
-                        return '₹' + value.toLocaleString('en-IN');
-                      }
-                    }
-                  }
-                }
-              }}
-            />
-          </div>
-          <div>
-            <h4 className="text-md font-semibold mb-4">Gold Weight Acquired</h4>
-            <Bar
-              data={{
-                labels: ['Gold Weight'],
-                datasets: [
-                  {
-                    label: 'Weight (g)',
-                    data: [dayData.totalGoldWeight || 0],
-                    backgroundColor: 'rgba(40, 167, 69, 0.8)',
-                    borderColor: 'rgba(40, 167, 69, 1)',
-                    borderWidth: 1,
-                  },
-                ],
-              }}
-              options={{
-                responsive: true,
-                plugins: {
-                  legend: { position: 'top' },
-                  title: { display: true, text: 'Gold Acquired' },
-                },
-                scales: {
-                  y: {
-                    beginAtZero: true,
-                  }
-                }
-              }}
-            />
+          <div className="bg-red-50 p-4 rounded-lg border border-red-200">
+            <h4 className="font-semibold text-red-800 mb-2">Takeover Profit</h4>
+            <p className="text-2xl font-bold text-red-600">{currentData.takeoverProfitGold?.toFixed(3) || 0} g</p>
+            <p className="text-sm text-gray-600 mt-1">From takeovers</p>
           </div>
         </div>
       </div>
 
-      {/* Overview Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6 mb-8">
-        <div className="bg-yellow-50 p-4 rounded-lg border border-yellow-200 shadow-sm">
-          <h4 className="font-semibold text-yellow-800">Total Sales</h4>
-          <p className="text-2xl font-bold text-yellow-600">₹{overviewData.totalBillings?.toLocaleString('en-IN')}</p>
+      {/* Overall Summary */}
+      <div className="bg-gradient-to-r from-gray-800 to-gray-900 p-6 rounded-xl text-white shadow-lg">
+        <h3 className="text-2xl font-bold mb-4">📈 Overall Summary (All Time)</h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div>
+            <h4 className="text-sm opacity-75 mb-1">Total Gold Bought</h4>
+            <p className="text-2xl font-bold">{overviewData.totalGoldBought?.toFixed(3) || 0} g</p>
+          </div>
+          <div>
+            <h4 className="text-sm opacity-75 mb-1">Total Profit (Gold)</h4>
+            <p className="text-2xl font-bold text-yellow-400">{overviewData.totalAllProfitGold?.toFixed(3) || 0} g</p>
         </div>
-        <div className="bg-blue-50 p-4 rounded-lg border border-blue-200 shadow-sm">
-          <h4 className="font-semibold text-blue-800">Total Renewals</h4>
-          <p className="text-2xl font-bold text-blue-600">₹{overviewData.totalRenewals?.toLocaleString('en-IN')}</p>
-        </div>
-        <div className="bg-red-50 p-4 rounded-lg border border-red-200 shadow-sm">
-          <h4 className="font-semibold text-red-800">Total Takeovers</h4>
-          <p className="text-2xl font-bold text-red-600">₹{overviewData.totalTakeovers?.toLocaleString('en-IN')}</p>
-        </div>
-        <div className="bg-green-50 p-4 rounded-lg border border-green-200 shadow-sm">
-          <h4 className="font-semibold text-green-800">Total Transactions</h4>
-          <p className="text-2xl font-bold text-green-600">{overviewData.totalTransactions}</p>
+          <div>
+            <h4 className="text-sm opacity-75 mb-1">Total Cash Paid</h4>
+            <p className="text-2xl font-bold">₹{overviewData.totalCashPaid?.toLocaleString('en-IN') || 0}</p>
+          </div>
+          <div>
+            <h4 className="text-sm opacity-75 mb-1">Total Transactions</h4>
+            <p className="text-2xl font-bold">{overviewData.totalTransactions || 0}</p>
+          </div>
         </div>
       </div>
 
       {/* Charts */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
-        {/* Monthly Analytics */}
-        <div className="bg-white p-6 rounded-lg shadow-lg">
-          <h3 className="text-lg font-semibold mb-4">Monthly Revenue Breakdown</h3>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="bg-white p-6 rounded-xl shadow-lg">
+          <h3 className="text-lg font-bold mb-4">Monthly Profit in Gold</h3>
           <Bar
-            data={monthlyChartData}
+            data={profitChartData}
             options={{
               responsive: true,
               plugins: {
                 legend: { position: 'top' },
-                title: { display: true, text: 'Revenue by Month' },
+                title: { display: true, text: 'Profit (grams)' },
               },
               scales: {
                 y: {
                   beginAtZero: true,
                   ticks: {
                     callback: function(value) {
-                      return '₹' + value.toLocaleString('en-IN');
+                      return value.toFixed(2) + ' g';
                     }
                   }
                 }
@@ -383,23 +485,22 @@ const Analytics = ({ billings, renewals, takeovers, cashEntries }) => {
           />
         </div>
 
-        {/* Daily Analytics */}
-        <div className="bg-white p-6 rounded-lg shadow-lg">
-          <h3 className="text-lg font-semibold mb-4">Daily Sales Trend (Last 30 Days)</h3>
-          <Line
-            data={dailyChartData}
+        <div className="bg-white p-6 rounded-xl shadow-lg">
+          <h3 className="text-lg font-bold mb-4">Monthly Gold Bought</h3>
+          <Bar
+            data={goldBoughtChartData}
             options={{
               responsive: true,
               plugins: {
                 legend: { position: 'top' },
-                title: { display: true, text: 'Daily Sales Amount' },
+                title: { display: true, text: 'Gold Bought (grams)' },
               },
               scales: {
                 y: {
                   beginAtZero: true,
                   ticks: {
                     callback: function(value) {
-                      return '₹' + value.toLocaleString('en-IN');
+                      return value.toFixed(2) + ' g';
                     }
                   }
                 }
@@ -409,125 +510,27 @@ const Analytics = ({ billings, renewals, takeovers, cashEntries }) => {
         </div>
       </div>
 
-      {/* Pie Chart */}
-      <div className="bg-white p-6 rounded-lg shadow-lg mb-8">
-        <h3 className="text-lg font-semibold mb-4">Revenue Distribution</h3>
+      {/* Profit Distribution */}
+      <div className="bg-white p-6 rounded-xl shadow-lg">
+        <h3 className="text-lg font-bold mb-4">Profit Distribution (All Time)</h3>
         <div className="flex justify-center">
           <div className="w-full max-w-md">
             <Pie
-              data={pieChartData}
+              data={profitBreakdownData}
               options={{
                 responsive: true,
                 plugins: {
                   legend: { position: 'bottom' },
-                  title: { display: true, text: 'Revenue Sources' },
+                  tooltip: {
+                    callbacks: {
+                      label: function(context) {
+                        return context.label + ': ' + context.parsed.toFixed(3) + ' g';
+                      }
+                    }
+                  }
                 },
               }}
             />
-          </div>
-        </div>
-      </div>
-
-      {/* Gold Analytics Charts */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
-        {/* Monthly Gold Weight */}
-        <div className="bg-white p-6 rounded-lg shadow-lg">
-          <h3 className="text-lg font-semibold mb-4">Monthly Gold Weight Acquired</h3>
-          <Bar
-            data={{
-              labels: Object.keys(monthlyData),
-              datasets: [
-                {
-                  label: 'Gold Weight (g)',
-                  data: Object.values(monthlyData).map(d => d.goldWeight || 0),
-                  backgroundColor: 'rgba(40, 167, 69, 0.6)',
-                  borderColor: 'rgba(40, 167, 69, 1)',
-                  borderWidth: 1,
-                },
-              ],
-            }}
-            options={{
-              responsive: true,
-              plugins: {
-                legend: { position: 'top' },
-                title: { display: true, text: 'Gold Weight by Month' },
-              },
-              scales: {
-                y: {
-                  beginAtZero: true,
-                }
-              }
-            }}
-          />
-        </div>
-
-        {/* Daily Gold Weight Trend */}
-        <div className="bg-white p-6 rounded-lg shadow-lg">
-          <h3 className="text-lg font-semibold mb-4">Daily Gold Weight Trend (Last 30 Days)</h3>
-          <Line
-            data={{
-              labels: Object.keys(dailyData).sort(),
-              datasets: [
-                {
-                  label: 'Gold Weight (g)',
-                  data: Object.keys(dailyData).sort().map(day => dailyData[day].goldWeight || 0),
-                  borderColor: 'rgba(40, 167, 69, 1)',
-                  backgroundColor: 'rgba(40, 167, 69, 0.1)',
-                  tension: 0.1,
-                },
-              ],
-            }}
-            options={{
-              responsive: true,
-              plugins: {
-                legend: { position: 'top' },
-                title: { display: true, text: 'Daily Gold Weight' },
-              },
-              scales: {
-                y: {
-                  beginAtZero: true,
-                }
-              }
-            }}
-          />
-        </div>
-      </div>
-
-      {/* Additional Insights */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <div className="bg-gray-50 p-6 rounded-lg">
-          <h3 className="text-lg font-semibold mb-4">Key Metrics</h3>
-          <div className="space-y-2">
-            <div className="flex justify-between">
-              <span>Average Transaction Value:</span>
-              <span className="font-bold">₹{(overviewData.totalBillings / Math.max(billings.length, 1)).toLocaleString('en-IN', { maximumFractionDigits: 0 })}</span>
-            </div>
-            <div className="flex justify-between">
-              <span>Total Gold Weight Sold:</span>
-              <span className="font-bold">{billings.reduce((sum, b) => sum + (b.goldDetails?.weight || 0), 0).toFixed(2)} g</span>
-            </div>
-            <div className="flex justify-between">
-              <span>Active Customers:</span>
-              <span className="font-bold">{new Set(billings.map(b => b.customer?._id)).size}</span>
-            </div>
-          </div>
-        </div>
-
-        <div className="bg-gray-50 p-6 rounded-lg">
-          <h3 className="text-lg font-semibold mb-4">Performance Indicators</h3>
-          <div className="space-y-2">
-            <div className="flex justify-between">
-              <span>Monthly Growth Rate:</span>
-              <span className="font-bold text-green-600">+12.5%</span>
-            </div>
-            <div className="flex justify-between">
-              <span>Customer Satisfaction:</span>
-              <span className="font-bold text-blue-600">95%</span>
-            </div>
-            <div className="flex justify-between">
-              <span>Operational Efficiency:</span>
-              <span className="font-bold text-purple-600">88%</span>
-            </div>
           </div>
         </div>
       </div>

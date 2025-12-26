@@ -10,7 +10,8 @@ import UserVault from '../components/dashboard/UserVault';
 import EmployeeManagement from '../components/dashboard/EmployeeManagement';
 import Analytics from '../components/dashboard/Analytics';
 import ExpenseTracker from '../components/dashboard/ExpenseTracker';
-import { FaCoins, FaMoneyBillWave, FaFileInvoice, FaUsers, FaSignOutAlt, FaBars, FaChartBar, FaCreditCard } from 'react-icons/fa';
+import Transactions from '../components/dashboard/Transactions';
+import { FaCoins, FaMoneyBillWave, FaFileInvoice, FaUsers, FaSignOutAlt, FaBars, FaChartBar, FaCreditCard, FaListAlt } from 'react-icons/fa';
 
 const Dashboard = () => {
   const { user, logout } = useAuth();
@@ -208,13 +209,19 @@ const Dashboard = () => {
           resetInitialCash={resetInitialCash}
           resetGoldTransactions={resetGoldTransactions}
           billings={billings}
+          company={company}
         />
       ),
     },
     {
       title: 'Expense Tracker',
       icon: <FaCreditCard />,
-      content: <ExpenseTracker cashEntries={cashEntries} />,
+      content: <ExpenseTracker cashEntries={cashEntries} billings={billings} renewals={renewals} takeovers={takeovers} />,
+    },
+    {
+      title: 'Transactions',
+      icon: <FaListAlt />,
+      content: <Transactions billings={billings} renewals={renewals} takeovers={takeovers} cashEntries={cashEntries} />,
     },
     {
       title: 'User Vault',
@@ -270,7 +277,7 @@ const Dashboard = () => {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
       {/* Mobile Sidebar Overlay */}
       {mobileOpen && (
         <div className="fixed inset-0 z-50 md:hidden">
@@ -299,12 +306,12 @@ const Dashboard = () => {
         </div>
 
         {/* Main Content */}
-        <div className="flex-1 p-4 md:p-8 transition-all duration-300">
+        <div className="flex-1 p-4 md:p-6 lg:p-8 transition-all duration-300">
           {/* Mobile Header */}
-          <div className="flex items-center justify-between mb-8 md:hidden">
+          <div className="flex items-center justify-between mb-6 md:hidden">
             <button
               onClick={() => setMobileOpen(true)}
-              className="p-2 bg-yellow-500 text-white rounded-lg hover:bg-yellow-600 transition-colors"
+              className="p-2 bg-yellow-500 text-white rounded-lg hover:bg-yellow-600 transition-colors shadow-md"
             >
               <FaBars size={20} />
             </button>
@@ -312,16 +319,16 @@ const Dashboard = () => {
           </div>
 
           {/* Desktop Header */}
-          <div className="hidden md:block mb-8">
-            <h1 className="text-4xl font-bold text-gray-800 mb-3">
+          <div className="hidden md:block mb-6">
+            <h1 className="text-3xl lg:text-4xl font-bold text-gray-800 mb-2">
               Welcome back, {user?.name}!
             </h1>
-            <p className="text-lg text-gray-600">
+            <p className="text-base lg:text-lg text-gray-600">
               Manage your gold trading operations from this admin dashboard.
             </p>
           </div>
 
-          <div className="bg-white w-full h-[75vh] md:h-[78vh] rounded-2xl shadow-lg p-4 md:p-8 overflow-y-auto">
+          <div className="bg-white w-full h-[75vh] md:h-[78vh] rounded-xl shadow-lg p-4 md:p-6 lg:p-8 overflow-y-auto">
             {activeItem === '' ? (
               <DashboardHome setActiveItem={setActiveItem} />
             ) : (

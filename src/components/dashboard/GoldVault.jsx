@@ -66,13 +66,36 @@ const GoldVault = ({ billings, renewals = [], takeovers = [] }) => {
       {goldVaultTab === 'physical' && (
         <div>
           <h3 className="text-lg font-semibold mb-4">Physical Gold Sales</h3>
-          <p className="text-gray-600 mb-4">Customers coming to shop to sell their gold.</p>
+          <p className="text-gray-600 mb-2">Customers coming to shop to sell their gold.</p>
+          <div className="bg-yellow-50 border border-yellow-200 p-2 rounded-lg mb-4">
+            <p className="text-xs text-yellow-800">
+              <strong>Note:</strong> Today's data resets at 4 AM. All historical data is preserved in Transactions.
+            </p>
+          </div>
 
-          {/* Filter Billings for Today - Only Physical Sales */}
+          {/* Filter Billings for Today - Only Physical Sales (4 AM reset) */}
           {(() => {
-            const today = new Date().toDateString();
+            // Helper function to get today's start time (4 AM)
+            const getTodayStart = () => {
+              const now = new Date();
+              const today = new Date(now);
+              if (now.getHours() < 4) {
+                today.setDate(today.getDate() - 1);
+              }
+              today.setHours(4, 0, 0, 0);
+              return today;
+            };
+            const getTodayEnd = () => {
+              const todayStart = getTodayStart();
+              const todayEnd = new Date(todayStart);
+              todayEnd.setDate(todayEnd.getDate() + 1);
+              return todayEnd;
+            };
+            const todayStart = getTodayStart();
+            const todayEnd = getTodayEnd();
             const todaysBillings = billings.filter(b => {
-              const isToday = new Date(b.createdAt || b.date).toDateString() === today;
+              const billingDate = new Date(b.createdAt || b.date);
+              const isToday = billingDate >= todayStart && billingDate < todayEnd;
               const isPhysical = !b.billingType || b.billingType === 'Physical';
               return isToday && isPhysical;
             });
